@@ -1,6 +1,12 @@
 #!/usr/bin/env bats
 
-load '../test_helper'
+# Integration tests - do NOT load test_helper as it sets PLUGIN_BASE_PATH
+# which conflicts with the actual installed plugin paths
+
+# Load only BATS assertions
+HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+load "${HELPER_DIR}/test_helper/bats-support/load"
+load "${HELPER_DIR}/test_helper/bats-assert/load"
 
 # Integration tests require Dokku to be installed
 # These tests run against a real Dokku installation
@@ -10,6 +16,9 @@ setup() {
   if ! command -v dokku &>/dev/null; then
     skip "Dokku is not installed"
   fi
+  # Clear any test environment variables that might interfere
+  unset PLUGIN_BASE_PATH
+  unset PLUGIN_DATA_ROOT
 }
 
 @test "integration: plugin is installed" {
