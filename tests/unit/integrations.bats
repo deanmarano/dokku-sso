@@ -37,8 +37,8 @@ unset_preset_vars() {
   local presets=(
     nextcloud gitea immich jellyfin emby plex portainer grafana audiobookshelf outline
     proxmox gitlab bookstack hedgedoc miniflux openwebui vaultwarden wikijs
-    paperless arr uptimekuma homeassistant syncthing guacamole navidrome
-    calibreweb matrix linkding
+    paperless arr radarr sonarr lidarr prowlarr bazarr readarr overseerr jellyseerr
+    uptimekuma homeassistant syncthing guacamole navidrome calibreweb matrix linkding
   )
 
   for preset in "${presets[@]}"; do
@@ -195,6 +195,22 @@ unset_preset_vars() {
   [[ "$uri" == "https://matrix.example.com/_synapse/client/oidc/callback" ]]
 }
 
+@test "integrations: overseerr redirect URI is correct" {
+  unset_preset_vars
+  load_preset "overseerr"
+  local uri
+  uri="$(preset_redirect_uri "requests.example.com")"
+  [[ "$uri" == "https://requests.example.com/api/v1/auth/oidc-callback" ]]
+}
+
+@test "integrations: jellyseerr redirect URI is correct" {
+  unset_preset_vars
+  load_preset "jellyseerr"
+  local uri
+  uri="$(preset_redirect_uri "requests.example.com")"
+  [[ "$uri" == "https://requests.example.com/api/v1/auth/oidc-callback" ]]
+}
+
 # =============================================================================
 # Test LDAP-only presets return empty redirect URI
 # =============================================================================
@@ -267,7 +283,7 @@ unset_preset_vars() {
   local oidc_presets=(
     nextcloud gitea immich portainer grafana audiobookshelf outline
     proxmox gitlab bookstack hedgedoc miniflux openwebui wikijs
-    paperless guacamole matrix
+    paperless guacamole matrix overseerr jellyseerr
   )
 
   for preset in "${oidc_presets[@]}"; do
@@ -289,7 +305,7 @@ unset_preset_vars() {
 }
 
 @test "integrations: proxy auth presets have OIDC support disabled" {
-  local proxy_presets=(arr uptimekuma syncthing homeassistant navidrome linkding plex)
+  local proxy_presets=(arr radarr sonarr lidarr prowlarr bazarr readarr uptimekuma syncthing homeassistant navidrome linkding plex)
 
   for preset in "${proxy_presets[@]}"; do
     unset_preset_vars
@@ -484,7 +500,7 @@ unset_preset_vars() {
 # =============================================================================
 
 @test "integrations: OIDC presets have scopes set" {
-  local oidc_presets=(nextcloud gitea immich portainer grafana outline bookstack)
+  local oidc_presets=(nextcloud gitea immich portainer grafana outline bookstack overseerr jellyseerr)
 
   for preset in "${oidc_presets[@]}"; do
     unset_preset_vars
@@ -495,7 +511,7 @@ unset_preset_vars() {
 }
 
 @test "integrations: proxy auth presets have empty scopes" {
-  local proxy_presets=(arr uptimekuma syncthing homeassistant plex)
+  local proxy_presets=(arr radarr sonarr lidarr prowlarr bazarr readarr uptimekuma syncthing homeassistant plex)
 
   for preset in "${proxy_presets[@]}"; do
     unset_preset_vars
