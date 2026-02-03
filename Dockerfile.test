@@ -57,19 +57,14 @@ RUN chmod +x /usr/local/bin/setup-dokku-ssh
 # Wrapper script to run dokku commands
 COPY <<'EOF' /usr/local/bin/dokku
 #!/bin/bash
-# Try SSH first, fall back to docker exec
-if ssh -o BatchMode=yes -o ConnectTimeout=5 -p ${DOKKU_SSH_PORT:-22} dokku@${DOKKU_HOST:-dokku} "$@" 2>/dev/null; then
-    exit 0
-else
-    # Fall back to docker exec - try various container name patterns
-    # docker-compose v2: <project>-<service>-<replica>
-    # docker-compose v1: <project>_<service>_<replica>
-    docker exec dokku-auth-dokku-1 dokku "$@" 2>/dev/null || \
-    docker exec dokku-auth_dokku_1 dokku "$@" 2>/dev/null || \
-    docker exec dokku-dokku-1 dokku "$@" 2>/dev/null || \
-    docker exec dokku_dokku_1 dokku "$@" 2>/dev/null || \
-    docker exec dokku dokku "$@"
+# Find the dokku container dynamically
+CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '^(dokku-auth[-_]dokku[-_]1|dokku[-_]dokku[-_]1|dokku)$' | head -1)
+if [ -z "$CONTAINER" ]; then
+    echo "Error: Could not find dokku container" >&2
+    docker ps --format '{{.Names}}' >&2
+    exit 1
 fi
+exec docker exec "$CONTAINER" dokku "$@"
 EOF
 RUN chmod +x /usr/local/bin/dokku
 
