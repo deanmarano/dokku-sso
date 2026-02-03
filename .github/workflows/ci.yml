@@ -43,78 +43,10 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit
 
-  # Integration tests require a full Dokku environment
-  # These can be run locally with: vagrant up && npm run test:e2e
-  integration-tests:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    # Only run on main branch pushes, not PRs (expensive)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build containers
-        run: docker compose -f docker-compose.test.yml build test-runner
-
-      - name: Start containers
-        run: |
-          docker compose -f docker-compose.test.yml up -d
-          echo "Waiting for Dokku to be ready..."
-          for i in {1..60}; do
-            if docker compose -f docker-compose.test.yml exec -T dokku dokku version 2>/dev/null; then
-              echo "Dokku is ready!"
-              break
-            fi
-            echo "Waiting... ($i/60)"
-            sleep 5
-          done
-
-      - name: Install plugin
-        run: |
-          docker compose -f docker-compose.test.yml exec -T dokku bash -c "
-            mkdir -p /var/lib/dokku/plugins/available/auth
-            cp -r /plugin-src/* /var/lib/dokku/plugins/available/auth/
-            ln -sf /var/lib/dokku/plugins/available/auth /var/lib/dokku/plugins/enabled/auth
-            dokku plugin:install-dependencies auth || true
-          "
-
-      - name: Verify plugin installation
-        run: |
-          docker compose -f docker-compose.test.yml exec -T dokku dokku auth:help
-
-      - name: Debug Docker access
-        run: |
-          echo "=== Checking containers from host ==="
-          docker ps
-          echo "=== Checking Docker access from test-runner ==="
-          docker compose -f docker-compose.test.yml exec -T test-runner docker ps || echo "Docker access failed"
-          echo "=== Testing dokku wrapper ==="
-          docker compose -f docker-compose.test.yml exec -T test-runner dokku version || echo "dokku wrapper failed"
-
-      - name: Run integration tests
-        run: |
-          docker compose -f docker-compose.test.yml exec -T test-runner npm run test:integration
-
-      - name: Collect logs
-        if: always()
-        run: docker compose -f docker-compose.test.yml logs > docker-logs.txt
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-logs
-          path: docker-logs.txt
-
-      - name: Cleanup
-        if: always()
-        run: docker compose -f docker-compose.test.yml down -v
+  # Integration tests require a full Dokku environment with Docker-in-Docker
+  # which is unreliable in GitHub Actions. Run these locally:
+  #   - vagrant up && npm run test:integration
+  #   - docker compose -f docker-compose.test.yml up && npm run test:integration
+  #
+  # To run integration tests in CI, a self-hosted runner with proper Docker
+  # setup would be needed.
