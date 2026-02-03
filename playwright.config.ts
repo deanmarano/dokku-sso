@@ -47,12 +47,27 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
 
-    // App integration tests - Gitea, Nextcloud
+    // Gitea integration tests
     {
-      name: 'app-integration',
-      testMatch: ['*-integration.spec.ts'],
+      name: 'gitea-integration',
+      testMatch: ['gitea-integration.spec.ts'],
       use: { ...devices['Desktop Chrome'] },
-      // These tests are slow, increase timeout
+      timeout: 600000, // 10 minutes
+    },
+
+    // Multi-app integration tests
+    {
+      name: 'multi-app-integration',
+      testMatch: ['multi-app-integration.spec.ts'],
+      use: { ...devices['Desktop Chrome'] },
+      timeout: 600000, // 10 minutes
+    },
+
+    // Nextcloud LDAP tests
+    {
+      name: 'nextcloud-ldap',
+      testMatch: ['nextcloud-ldap.spec.ts'],
+      use: { ...devices['Desktop Chrome'] },
       timeout: 600000, // 10 minutes
     },
 

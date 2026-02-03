@@ -95,8 +95,8 @@ jobs:
           echo "=== Auth services ==="
           sudo dokku auth:list 2>/dev/null || true
 
-  e2e-tests:
-    name: E2E Tests
+  e2e-gitea:
+    name: E2E - Gitea Integration
     runs-on: ubuntu-24.04
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
@@ -125,24 +125,22 @@ jobs:
           sudo mkdir -p /var/lib/dokku/plugins/available/auth
           sudo cp -r ./* /var/lib/dokku/plugins/available/auth/
           sudo ln -sf /var/lib/dokku/plugins/available/auth /var/lib/dokku/plugins/enabled/auth
-          # Create plugin data directory
           sudo mkdir -p /var/lib/dokku/services/auth
           sudo chown -R dokku:dokku /var/lib/dokku/services/auth
           sudo dokku plugin:install-dependencies auth || true
 
-      - name: Run E2E tests
-        run: npx playwright test --project=app-integration
+      - name: Run Gitea integration tests
+        run: npx playwright test --project=gitea-integration
         env:
           CI: true
           DOKKU_HOST: local
           DOKKU_USE_SUDO: 'true'
-          E2E_CLEANUP: 'true'
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-gitea
           path: playwright-report/
 
       - name: Collect logs on failure
@@ -152,15 +150,115 @@ jobs:
           docker ps -a
           echo "=== Auth services ==="
           sudo dokku auth:list 2>/dev/null || true
-          sudo dokku auth:frontend:list 2>/dev/null || true
 
-  # LDAP Authentication Test is currently disabled due to test isolation issues
-  # The test works locally but conflicts with the global E2E setup in CI
-  # Run manually with: npx playwright test --project=gitea-ldap
-  # ldap-auth-test:
-  #   name: LDAP Authentication Test
-  #   runs-on: ubuntu-24.04
-  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     ...etc
+  e2e-nextcloud:
+    name: E2E - Nextcloud LDAP
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Install Dokku
+        run: |
+          wget -NP . https://dokku.com/install/v0.35.15/bootstrap.sh
+          sudo DOKKU_TAG=v0.35.15 bash bootstrap.sh
+          dokku version
+
+      - name: Install plugin
+        run: |
+          sudo mkdir -p /var/lib/dokku/plugins/available/auth
+          sudo cp -r ./* /var/lib/dokku/plugins/available/auth/
+          sudo ln -sf /var/lib/dokku/plugins/available/auth /var/lib/dokku/plugins/enabled/auth
+          sudo mkdir -p /var/lib/dokku/services/auth
+          sudo chown -R dokku:dokku /var/lib/dokku/services/auth
+          sudo dokku plugin:install-dependencies auth || true
+
+      - name: Run Nextcloud LDAP tests
+        run: npx playwright test --project=nextcloud-ldap
+        env:
+          CI: true
+          DOKKU_HOST: local
+          DOKKU_USE_SUDO: 'true'
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-nextcloud
+          path: playwright-report/
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker containers ==="
+          docker ps -a
+          echo "=== Auth services ==="
+          sudo dokku auth:list 2>/dev/null || true
+
+  e2e-multi-app:
+    name: E2E - Multi-App Integration
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Install Dokku
+        run: |
+          wget -NP . https://dokku.com/install/v0.35.15/bootstrap.sh
+          sudo DOKKU_TAG=v0.35.15 bash bootstrap.sh
+          dokku version
+
+      - name: Install plugin
+        run: |
+          sudo mkdir -p /var/lib/dokku/plugins/available/auth
+          sudo cp -r ./* /var/lib/dokku/plugins/available/auth/
+          sudo ln -sf /var/lib/dokku/plugins/available/auth /var/lib/dokku/plugins/enabled/auth
+          sudo mkdir -p /var/lib/dokku/services/auth
+          sudo chown -R dokku:dokku /var/lib/dokku/services/auth
+          sudo dokku plugin:install-dependencies auth || true
+
+      - name: Run Multi-app integration tests
+        run: npx playwright test --project=multi-app-integration
+        env:
+          CI: true
+          DOKKU_HOST: local
+          DOKKU_USE_SUDO: 'true'
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-multi-app
+          path: playwright-report/
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker containers ==="
+          docker ps -a
+          echo "=== Auth services ==="
+          sudo dokku auth:list 2>/dev/null || true
