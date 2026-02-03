@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
 # Directory Provider Template
 # Copy this file to a new directory and implement all functions
+# SC2034 disabled: Variables are used when this script is sourced
 
 # Provider metadata - MUST set these
 PROVIDER_NAME=""                    # Short name (e.g., "lldap")

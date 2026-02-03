@@ -36,6 +36,7 @@ services:
     volumes:
       - .:/app
       - test-results:/app/test-results
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - DOKKU_HOST=dokku
       - DOKKU_SSH_PORT=22

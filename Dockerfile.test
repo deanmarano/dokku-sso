@@ -61,7 +61,11 @@ COPY <<'EOF' /usr/local/bin/dokku
 if ssh -o BatchMode=yes -o ConnectTimeout=5 -p ${DOKKU_SSH_PORT:-22} dokku@${DOKKU_HOST:-dokku} "$@" 2>/dev/null; then
     exit 0
 else
-    # Fall back to docker exec
+    # Fall back to docker exec - try various container name patterns
+    # docker-compose v2: <project>-<service>-<replica>
+    # docker-compose v1: <project>_<service>_<replica>
+    docker exec dokku-auth-dokku-1 dokku "$@" 2>/dev/null || \
+    docker exec dokku-auth_dokku_1 dokku "$@" 2>/dev/null || \
     docker exec dokku-dokku-1 dokku "$@" 2>/dev/null || \
     docker exec dokku_dokku_1 dokku "$@" 2>/dev/null || \
     docker exec dokku dokku "$@"

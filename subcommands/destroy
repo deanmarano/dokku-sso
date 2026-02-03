@@ -37,7 +37,7 @@ fi
 # Check for linked apps
 if [[ -s "$SERVICE_ROOT/LINKS" ]] && [[ -z "$FORCE" ]]; then
   echo "!     Service has linked apps:" >&2
-  cat "$SERVICE_ROOT/LINKS" | sed 's/^/         /' >&2
+  sed 's/^/         /' < "$SERVICE_ROOT/LINKS" >&2
   echo "" >&2
   echo "       Use --force to destroy anyway, or unlink apps first:" >&2
   echo "         dokku auth:unlink $SERVICE <app>" >&2
@@ -66,7 +66,7 @@ provider_destroy "$SERVICE"
 if [[ -d "$SERVICE_ROOT/data" ]]; then
   docker run --rm -v "$SERVICE_ROOT:/svc" busybox sh -c "rm -rf /svc/*" 2>/dev/null || \
   docker run --rm -v "$SERVICE_ROOT:/svc" alpine sh -c "rm -rf /svc/*" 2>/dev/null || \
-  rm -rf "$SERVICE_ROOT"/* 2>/dev/null || true
+  rm -rf "${SERVICE_ROOT:?}/"* 2>/dev/null || true
 fi
 rm -rf "$SERVICE_ROOT" 2>/dev/null || true
 

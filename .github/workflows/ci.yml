@@ -19,11 +19,11 @@ jobs:
       - name: Run shellcheck on bash scripts
         run: |
           # Check main scripts
-          shellcheck -x commands config install 2>/dev/null || true
+          shellcheck -x commands config install
           # Check subcommands (skip symlinks)
-          find subcommands -type f ! -type l -exec shellcheck -x {} \; 2>/dev/null || true
+          find subcommands -type f ! -type l -exec shellcheck -x {} +
           # Check provider scripts
-          find providers -name "*.sh" -type f -exec shellcheck -x {} \; 2>/dev/null || true
+          find providers -name "*.sh" -type f -exec shellcheck -x {} +
 
   unit-tests:
     name: Unit Tests
@@ -88,12 +88,12 @@ jobs:
         run: |
           docker compose -f docker-compose.test.yml exec -T dokku dokku auth:help || echo "Plugin help not available yet"
 
+      - name: Build test runner
+        run: docker compose -f docker-compose.test.yml build test-runner
+
       - name: Run integration tests
         run: |
-          docker compose -f docker-compose.test.yml exec -T dokku bash -c "
-            cd /plugin-src && npm run test:integration
-          " || true
-        continue-on-error: true
+          docker compose -f docker-compose.test.yml run --rm test-runner npm run test:integration
 
       - name: Collect logs
         if: always()

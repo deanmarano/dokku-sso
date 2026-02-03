@@ -3,7 +3,8 @@
 export PLUGIN_COMMAND_PREFIX="auth"
 export PLUGIN_SERVICE="auth"
 export PLUGIN_DATA_ROOT="${DOKKU_LIB_ROOT:-/var/lib/dokku}/services/auth"
-export PLUGIN_BASE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_BASE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PLUGIN_BASE_PATH
 
 # Dokku may or may not pass the command name as $1 depending on version/config
 # This function strips it if present

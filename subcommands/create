@@ -52,7 +52,7 @@ load_directory_provider "$SERVICE"
 provider_create_container "$SERVICE"
 
 # Store metadata
-echo "$(get_directory_container_name "$SERVICE")" > "$SERVICE_ROOT/CONTAINER_NAME"
+get_directory_container_name "$SERVICE" > "$SERVICE_ROOT/CONTAINER_NAME"
 echo "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION" > "$SERVICE_ROOT/IMAGE"
 touch "$SERVICE_ROOT/LINKS"
 

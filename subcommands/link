@@ -95,10 +95,12 @@ fi
 
 # Store which vars were set (for unlink)
 mkdir -p "$SERVICE_ROOT/linked-vars"
-echo "LDAP_URL" > "$SERVICE_ROOT/linked-vars/$APP"
-echo "LDAP_BASE_DN" >> "$SERVICE_ROOT/linked-vars/$APP"
-echo "LDAP_BIND_DN" >> "$SERVICE_ROOT/linked-vars/$APP"
-echo "LDAP_BIND_PASSWORD" >> "$SERVICE_ROOT/linked-vars/$APP"
+{
+  echo "LDAP_URL"
+  echo "LDAP_BASE_DN"
+  echo "LDAP_BIND_DN"
+  echo "LDAP_BIND_PASSWORD"
+} > "$SERVICE_ROOT/linked-vars/$APP"
 
 echo "-----> $APP linked to $SERVICE"
 echo ""

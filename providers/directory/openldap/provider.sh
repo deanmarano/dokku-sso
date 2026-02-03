@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
 # OpenLDAP Directory Provider
 # Full-featured LDAP server
+# SC2034 disabled: Variables are used when this script is sourced
 
 # Provider metadata
 PROVIDER_NAME="openldap"

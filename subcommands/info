@@ -50,9 +50,10 @@ else
 fi
 
 # Get linked apps
-LINKS=""
 if [[ -s "$SERVICE_ROOT/LINKS" ]]; then
-  LINKS=$(cat "$SERVICE_ROOT/LINKS" | tr '\n' ',' | sed 's/,$//')
+  LINKS=$(tr '\n' ',' < "$SERVICE_ROOT/LINKS" | sed 's/,$//')
+else
+  LINKS=""
 fi
 
 if [[ "$FORMAT" == "json" ]]; then
@@ -65,7 +66,7 @@ if [[ "$FORMAT" == "json" ]]; then
   "ldap_url": "ldap://$CONTAINER_NAME:$PROVIDER_LDAP_PORT",
   "base_dn": "$BASE_DN",
   "web_url": "$HTTP_URL",
-  "linked_apps": "$(cat "$SERVICE_ROOT/LINKS" 2>/dev/null | tr '\n' ',' | sed 's/,$//')"
+  "linked_apps": "$LINKS"
 }
 EOF
 else
@@ -76,7 +77,7 @@ else
   echo ""
   echo "       Linked apps:"
   if [[ -s "$SERVICE_ROOT/LINKS" ]]; then
-    cat "$SERVICE_ROOT/LINKS" | sed 's/^/         /'
+    sed 's/^/         /' < "$SERVICE_ROOT/LINKS"
   else
     echo "         (none)"
   fi
