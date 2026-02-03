@@ -43,10 +43,107 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit
 
-  # Integration tests require a full Dokku environment with Docker-in-Docker
-  # which is unreliable in GitHub Actions. Run these locally:
-  #   - vagrant up && npm run test:integration
-  #   - docker compose -f docker-compose.test.yml up && npm run test:integration
-  #
-  # To run integration tests in CI, a self-hosted runner with proper Docker
-  # setup would be needed.
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-24.04
+    # Only run on main branch pushes, not PRs (expensive)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Dokku
+        run: |
+          wget -NP . https://dokku.com/install/v0.35.15/bootstrap.sh
+          sudo DOKKU_TAG=v0.35.15 bash bootstrap.sh
+          # Allow runner user to run dokku commands
+          sudo usermod -aG docker $USER
+          echo "$USER ALL=(ALL) NOPASSWD: /usr/bin/dokku" | sudo tee /etc/sudoers.d/dokku-runner
+
+      - name: Install plugin
+        run: |
+          sudo mkdir -p /var/lib/dokku/plugins/available/auth
+          sudo cp -r ./* /var/lib/dokku/plugins/available/auth/
+          sudo ln -sf /var/lib/dokku/plugins/available/auth /var/lib/dokku/plugins/enabled/auth
+          sudo dokku plugin:install-dependencies auth || true
+          sudo dokku auth:help
+
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          DOKKU_HOST: local
+          DOKKU_USE_SUDO: 'true'
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Dokku logs ==="
+          sudo dokku logs:failed 2>/dev/null || true
+          echo "=== Docker containers ==="
+          docker ps -a
+          echo "=== Auth services ==="
+          sudo dokku auth:list 2>/dev/null || true
+
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Install Dokku
+        run: |
+          wget -NP . https://dokku.com/install/v0.35.15/bootstrap.sh
+          sudo DOKKU_TAG=v0.35.15 bash bootstrap.sh
+          dokku version
+
+      - name: Install plugin
+        run: |
+          sudo mkdir -p /var/lib/dokku/plugins/available/auth
+          sudo cp -r ./* /var/lib/dokku/plugins/available/auth/
+          sudo ln -sf /var/lib/dokku/plugins/available/auth /var/lib/dokku/plugins/enabled/auth
+          sudo dokku plugin:install-dependencies auth || true
+
+      - name: Run E2E tests
+        run: npx playwright test --project=app-integration
+        env:
+          CI: true
+          DOKKU_HOST: local
+          DOKKU_USE_SUDO: 'true'
+          E2E_CLEANUP: 'true'
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker containers ==="
+          docker ps -a
+          echo "=== Auth services ==="
+          sudo dokku auth:list 2>/dev/null || true
+          sudo dokku auth:frontend:list 2>/dev/null || true

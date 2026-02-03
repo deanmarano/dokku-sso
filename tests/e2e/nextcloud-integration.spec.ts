@@ -10,12 +10,14 @@ import { execSync } from 'child_process';
 
 const SERVICE_NAME = 'multi-app-ldap-test';
 const TEST_APPS = ['app-alpha', 'app-beta'];
+const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
 
 // Helper to run dokku commands
 function dokku(cmd: string): string {
-  console.log(`$ dokku ${cmd}`);
+  const dokkuCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
+  console.log(`$ ${dokkuCmd}`);
   try {
-    const result = execSync(`sudo dokku ${cmd}`, { encoding: 'utf8', timeout: 300000 });
+    const result = execSync(dokkuCmd, { encoding: 'utf8', timeout: 300000 });
     console.log(result);
     return result;
   } catch (error: any) {
@@ -55,7 +57,8 @@ test.describe('Multiple App LDAP Integration', () => {
     let healthy = false;
     for (let i = 0; i < 30; i++) {
       try {
-        const status = execSync(`sudo dokku auth:status ${SERVICE_NAME}`, { encoding: 'utf-8' });
+        const statusCmd = USE_SUDO ? `sudo dokku auth:status ${SERVICE_NAME}` : `dokku auth:status ${SERVICE_NAME}`;
+        const status = execSync(statusCmd, { encoding: 'utf-8' });
         if (status.includes('healthy')) {
           healthy = true;
           break;

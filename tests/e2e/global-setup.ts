@@ -8,11 +8,13 @@ import { execSync } from 'child_process';
 
 const SHARED_SERVICE = process.env.E2E_SERVICE_NAME || 'e2e-shared';
 const SKIP_SETUP = process.env.SKIP_GLOBAL_SETUP === 'true';
+const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
 
 function dokku(cmd: string): string {
-  console.log(`[setup] dokku ${cmd}`);
+  const dokkuCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
+  console.log(`[setup] ${dokkuCmd}`);
   try {
-    return execSync(`dokku ${cmd}`, {
+    return execSync(dokkuCmd, {
       encoding: 'utf8',
       timeout: 300000,
       stdio: ['pipe', 'pipe', 'pipe']

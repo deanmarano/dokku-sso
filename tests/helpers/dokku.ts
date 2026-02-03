@@ -7,6 +7,8 @@ const execAsync = promisify(exec);
 // When running remotely, set DOKKU_HOST to the target host
 const DOKKU_HOST = process.env.DOKKU_HOST || 'local';
 const DOKKU_SSH_PORT = process.env.DOKKU_SSH_PORT || '22';
+// Set DOKKU_USE_SUDO=true to prefix local commands with sudo
+const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
 
 export interface ServiceInfo {
   service: string;
@@ -44,9 +46,10 @@ export class DokkuAuth {
   async exec(command: string): Promise<ExecResult> {
     // Handle both "auth:create foo" and "create foo" formats
     const fullCmd = command.startsWith('auth:') ? command : `auth:${command}`;
+    const localCmd = USE_SUDO ? `sudo dokku ${fullCmd}` : `dokku ${fullCmd}`;
     const cmd = this.isRemote()
       ? `ssh -o StrictHostKeyChecking=no -p ${DOKKU_SSH_PORT} dokku@${DOKKU_HOST} ${fullCmd}`
-      : `dokku ${fullCmd}`;
+      : localCmd;
 
     try {
       const { stdout, stderr } = await execAsync(cmd);
@@ -67,9 +70,10 @@ export class DokkuAuth {
   run(...args: string[]): string {
     const [subcommand, ...rest] = args;
     const fullCmd = `auth:${subcommand}`;
+    const localCmd = USE_SUDO ? `sudo dokku ${fullCmd} ${rest.join(' ')}` : `dokku ${fullCmd} ${rest.join(' ')}`;
     const cmd = this.isRemote()
       ? `ssh -o StrictHostKeyChecking=no -p ${DOKKU_SSH_PORT} dokku@${DOKKU_HOST} ${fullCmd} ${rest.join(' ')}`
-      : `dokku ${fullCmd} ${rest.join(' ')}`;
+      : localCmd;
 
     return execSync(cmd, { encoding: 'utf-8' });
   }
@@ -78,9 +82,10 @@ export class DokkuAuth {
   async runAsync(...args: string[]): Promise<string> {
     const [subcommand, ...rest] = args;
     const fullCmd = `auth:${subcommand}`;
+    const localCmd = USE_SUDO ? `sudo dokku ${fullCmd} ${rest.join(' ')}` : `dokku ${fullCmd} ${rest.join(' ')}`;
     const cmd = this.isRemote()
       ? `ssh -o StrictHostKeyChecking=no -p ${DOKKU_SSH_PORT} dokku@${DOKKU_HOST} ${fullCmd} ${rest.join(' ')}`
-      : `dokku ${fullCmd} ${rest.join(' ')}`;
+      : localCmd;
 
     const { stdout } = await execAsync(cmd);
     return stdout;
@@ -88,9 +93,10 @@ export class DokkuAuth {
 
   /** Run a generic dokku command (not auth:*) */
   runDokku(...args: string[]): string {
+    const localCmd = USE_SUDO ? `sudo dokku ${args.join(' ')}` : `dokku ${args.join(' ')}`;
     const cmd = this.isRemote()
       ? `ssh -o StrictHostKeyChecking=no -p ${DOKKU_SSH_PORT} dokku@${DOKKU_HOST} ${args.join(' ')}`
-      : `dokku ${args.join(' ')}`;
+      : localCmd;
 
     return execSync(cmd, { encoding: 'utf-8' });
   }

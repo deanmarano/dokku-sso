@@ -10,11 +10,13 @@ import { cleanupTestUsers } from './fixtures/lldap-users';
 
 const SHARED_SERVICE = process.env.E2E_SERVICE_NAME || 'e2e-shared';
 const CLEANUP = process.env.E2E_CLEANUP === 'true';
+const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
 
 function dokku(cmd: string): string {
-  console.log(`[teardown] dokku ${cmd}`);
+  const dokkuCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
+  console.log(`[teardown] ${dokkuCmd}`);
   try {
-    return execSync(`dokku ${cmd}`, { encoding: 'utf8', timeout: 120000 });
+    return execSync(dokkuCmd, { encoding: 'utf8', timeout: 120000 });
   } catch (error: any) {
     console.error(`Command failed: ${error.message}`);
     return '';

@@ -17,12 +17,14 @@ const FRONTEND_SERVICE = 'oidc-frontend-test';
 const OIDC_CLIENT_ID = 'test-oidc-app';
 const OIDC_CLIENT_SECRET = 'test-client-secret-12345678901234567890';
 const OIDC_REDIRECT_URI = 'https://test-app.local/oauth2/callback';
+const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
 
 // Helper to run dokku commands
 function dokku(cmd: string): string {
-  console.log(`$ dokku ${cmd}`);
+  const dokkuCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
+  console.log(`$ ${dokkuCmd}`);
   try {
-    const result = execSync(`sudo dokku ${cmd}`, { encoding: 'utf8', timeout: 300000 });
+    const result = execSync(dokkuCmd, { encoding: 'utf8', timeout: 300000 });
     console.log(result);
     return result;
   } catch (error: any) {
@@ -63,7 +65,8 @@ async function waitForHealthy(service: string, type: 'directory' | 'frontend', m
 
   while (Date.now() - start < maxWait) {
     try {
-      const status = execSync(`sudo dokku ${cmd}`, { encoding: 'utf-8' });
+      const statusCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
+      const status = execSync(statusCmd, { encoding: 'utf-8' });
       if (status.includes('healthy') || status.includes('running')) {
         return true;
       }
@@ -183,7 +186,8 @@ test.describe('OIDC Client Integration', () => {
   });
 
   test('LLDAP directory service should be running', async () => {
-    const status = execSync(`sudo dokku auth:status ${DIRECTORY_SERVICE}`, { encoding: 'utf-8' });
+    const statusCmd = USE_SUDO ? `sudo dokku auth:status ${DIRECTORY_SERVICE}` : `dokku auth:status ${DIRECTORY_SERVICE}`;
+    const status = execSync(statusCmd, { encoding: 'utf-8' });
     expect(status).toContain('healthy');
   });
 
