@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+CLIENT_ID="$2"
+
+if [[ -z "$SERVICE" ]] || [[ -z "$CLIENT_ID" ]]; then
+  echo "Usage: dokku auth:oidc:remove-client <frontend-service> <client-id>" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
+
+if ! frontend_service_exists "$SERVICE"; then
+  echo "!     Frontend service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+CONFIG_DIR="$SERVICE_ROOT/config"
+
+# Check client exists
+if [[ ! -f "$CONFIG_DIR/oidc_clients/$CLIENT_ID" ]]; then
+  echo "!     Client $CLIENT_ID does not exist" >&2
+  exit 1
+fi
+
+echo "-----> Removing OIDC client $CLIENT_ID"
+
+load_frontend_provider "$SERVICE"
+provider_remove_oidc_client "$SERVICE" "$CLIENT_ID"
+
+echo "-----> Client removed"
+echo ""
+echo "       Run 'dokku auth:frontend:apply $SERVICE' to apply changes"

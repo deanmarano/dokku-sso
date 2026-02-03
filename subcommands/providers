@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+echo "=====> Directory providers"
+for provider in $(list_directory_providers); do
+  if [[ "$provider" == "$DEFAULT_DIRECTORY_PROVIDER" ]]; then
+    echo "       $provider (default)"
+  else
+    echo "       $provider"
+  fi
+done
+
+echo ""
+echo "=====> Frontend providers"
+for provider in $(list_frontend_providers); do
+  if [[ "$provider" == "$DEFAULT_FRONTEND_PROVIDER" ]]; then
+    echo "       $provider (default)"
+  else
+    echo "       $provider"
+  fi
+done

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+
+if [[ -z "$SERVICE" ]]; then
+  echo "Usage: dokku auth:oidc:list <frontend-service>" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
+
+if ! frontend_service_exists "$SERVICE"; then
+  echo "!     Frontend service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+CONFIG_DIR="$SERVICE_ROOT/config"
+
+# Check OIDC status
+if [[ ! -f "$CONFIG_DIR/OIDC_ENABLED" ]] || [[ "$(cat "$CONFIG_DIR/OIDC_ENABLED")" != "true" ]]; then
+  echo "OIDC is not enabled for $SERVICE"
+  exit 0
+fi
+
+echo "=====> OIDC Clients for $SERVICE"
+
+if [[ ! -d "$CONFIG_DIR/oidc_clients" ]] || [[ -z "$(ls -A "$CONFIG_DIR/oidc_clients" 2>/dev/null)" ]]; then
+  echo "       (none)"
+  exit 0
+fi
+
+load_frontend_provider "$SERVICE"
+
+for client_file in "$CONFIG_DIR/oidc_clients"/*; do
+  [[ -f "$client_file" ]] || continue
+  CLIENT_ID=$(basename "$client_file")
+  REDIRECT_URI=$(grep '^REDIRECT_URI=' "$client_file" | cut -d= -f2-)
+  echo "       $CLIENT_ID"
+  echo "         Redirect URI: $REDIRECT_URI"
+done

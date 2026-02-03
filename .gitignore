@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.log
+.env
+test-results/
+playwright-report/
+coverage/
+.vagrant/
+*.box
+vagrant/*.log

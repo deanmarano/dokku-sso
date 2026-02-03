@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+VERBOSE=""
+
+for arg in "$@"; do
+  case "$arg" in
+    -v|--verbose)
+      VERBOSE="true"
+      ;;
+  esac
+done
+
+if [[ -z "$SERVICE" ]]; then
+  echo "Usage: dokku auth:doctor <service> [-v|--verbose]" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+
+if ! directory_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+load_directory_provider "$SERVICE"
+
+CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+ISSUES=0
+
+echo "=====> Running diagnostics for $SERVICE"
+
+# Check 1: Service directory exists
+echo -n "       Checking service directory... "
+if [[ -d "$SERVICE_ROOT" ]]; then
+  echo "OK"
+else
+  echo "FAILED"
+  ISSUES=$((ISSUES + 1))
+fi
+
+# Check 2: Provider file exists
+echo -n "       Checking provider configuration... "
+if [[ -f "$SERVICE_ROOT/PROVIDER" ]]; then
+  echo "OK ($(cat "$SERVICE_ROOT/PROVIDER"))"
+else
+  echo "FAILED - no provider set"
+  ISSUES=$((ISSUES + 1))
+fi
+
+# Check 3: Container exists
+echo -n "       Checking container exists... "
+if docker ps -a -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+  echo "OK"
+else
+  echo "FAILED - container not found"
+  ISSUES=$((ISSUES + 1))
+fi
+
+# Check 4: Container is running
+echo -n "       Checking container is running... "
+if docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+  echo "OK"
+else
+  echo "FAILED - container not running"
+  ISSUES=$((ISSUES + 1))
+
+  # Try to start it
+  echo "       Attempting to start container..."
+  if docker start "$CONTAINER_NAME" >/dev/null 2>&1; then
+    echo "       Container started"
+    sleep 5
+  else
+    echo "       Failed to start container"
+  fi
+fi
+
+# Check 5: Network exists
+echo -n "       Checking auth network... "
+if docker network ls -q -f "name=^${AUTH_NETWORK}$" | grep -q .; then
+  echo "OK"
+else
+  echo "FAILED - creating network"
+  docker network create "$AUTH_NETWORK" >/dev/null
+  ISSUES=$((ISSUES + 1))
+fi
+
+# Check 6: Container on network
+echo -n "       Checking container network... "
+if docker inspect "$CONTAINER_NAME" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' 2>/dev/null | grep -q "$AUTH_NETWORK"; then
+  echo "OK"
+else
+  echo "FAILED - connecting to network"
+  docker network connect "$AUTH_NETWORK" "$CONTAINER_NAME" 2>/dev/null || true
+  ISSUES=$((ISSUES + 1))
+fi
+
+# Check 7: LDAP port responding
+echo -n "       Checking LDAP port... "
+if docker exec "$CONTAINER_NAME" /bin/sh -c "nc -z localhost $PROVIDER_LDAP_PORT" 2>/dev/null; then
+  echo "OK (port $PROVIDER_LDAP_PORT)"
+else
+  echo "FAILED - LDAP not responding"
+  ISSUES=$((ISSUES + 1))
+fi
+
+# Check 8: HTTP port responding (if applicable)
+if [[ -n "$PROVIDER_HTTP_PORT" ]]; then
+  echo -n "       Checking HTTP port... "
+  if docker exec "$CONTAINER_NAME" /bin/sh -c "nc -z localhost $PROVIDER_HTTP_PORT" 2>/dev/null; then
+    echo "OK (port $PROVIDER_HTTP_PORT)"
+  else
+    echo "FAILED - HTTP not responding"
+    ISSUES=$((ISSUES + 1))
+  fi
+fi
+
+# Check 9: Config files exist
+echo -n "       Checking configuration files... "
+CONFIG_DIR="$SERVICE_ROOT/config"
+MISSING_CONFIG=""
+for file in BASE_DN ADMIN_PASSWORD JWT_SECRET; do
+  if [[ ! -f "$CONFIG_DIR/$file" ]]; then
+    MISSING_CONFIG="$MISSING_CONFIG $file"
+  fi
+done
+if [[ -z "$MISSING_CONFIG" ]]; then
+  echo "OK"
+else
+  echo "FAILED - missing:$MISSING_CONFIG"
+  ISSUES=$((ISSUES + 1))
+fi
+
+# Check 10: Linked apps can reach service
+if [[ -s "$SERVICE_ROOT/LINKS" ]]; then
+  echo "       Checking linked apps..."
+  while IFS= read -r app; do
+    [[ -z "$app" ]] && continue
+    echo -n "         $app: "
+
+    # Check if app exists
+    if ! dokku apps:exists "$app" 2>/dev/null; then
+      echo "app not found"
+      ISSUES=$((ISSUES + 1))
+      continue
+    fi
+
+    # Check if app has LDAP config
+    if dokku config:get "$app" LDAP_URL >/dev/null 2>&1; then
+      echo "OK"
+    else
+      echo "missing LDAP config"
+      ISSUES=$((ISSUES + 1))
+    fi
+  done < "$SERVICE_ROOT/LINKS"
+fi
+
+# Verbose: show container logs
+if [[ -n "$VERBOSE" ]]; then
+  echo ""
+  echo "       Recent container logs:"
+  docker logs --tail 20 "$CONTAINER_NAME" 2>&1 | sed 's/^/         /'
+fi
+
+# Summary
+echo ""
+if [[ $ISSUES -eq 0 ]]; then
+  echo "=====> All checks passed"
+  exit 0
+else
+  echo "=====> Found $ISSUES issue(s)"
+  exit 1
+fi

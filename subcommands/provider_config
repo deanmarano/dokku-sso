@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+SERVICE="$1"
+shift || true  # Move past service name
+
+if [[ -z "$SERVICE" ]]; then
+  echo "Usage: dokku auth:provider:config <service> KEY=value [KEY=value ...]" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+
+if ! directory_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+CONFIG_DIR="$SERVICE_ROOT/config"
+mkdir -p "$CONFIG_DIR"
+
+if [[ $# -eq 0 ]]; then
+  # Show current config
+  echo "=====> Configuration for $SERVICE"
+  for file in "$CONFIG_DIR"/*; do
+    [[ -f "$file" ]] || continue
+    KEY=$(basename "$file")
+    VALUE=$(cat "$file")
+
+    # Mask sensitive values
+    case "$KEY" in
+      *PASSWORD*|*SECRET*|*KEY*)
+        if [[ ${#VALUE} -gt 10 ]]; then
+          VALUE="${VALUE:0:4}***${VALUE: -4}"
+        else
+          VALUE="***"
+        fi
+        ;;
+    esac
+
+    echo "       $KEY=$VALUE"
+  done
+  exit 0
+fi
+
+echo "-----> Setting configuration for $SERVICE"
+
+for arg in "$@"; do
+  if [[ "$arg" != *"="* ]]; then
+    echo "!     Invalid format: $arg (expected KEY=value)" >&2
+    continue
+  fi
+
+  KEY="${arg%%=*}"
+  VALUE="${arg#*=}"
+
+  echo "$VALUE" > "$CONFIG_DIR/$KEY"
+  chmod 600 "$CONFIG_DIR/$KEY"
+
+  # Mask sensitive values in output
+  case "$KEY" in
+    *PASSWORD*|*SECRET*|*KEY*)
+      echo "       $KEY=***"
+      ;;
+    *)
+      echo "       $KEY=$VALUE"
+      ;;
+  esac
+done
+
+echo ""
+echo "       Run 'dokku auth:provider:apply $SERVICE' to apply changes"

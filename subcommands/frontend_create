@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+
+if [[ -z "$SERVICE" ]]; then
+  echo "Usage: dokku auth:frontend:create <service>" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
+
+if frontend_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE already exists" >&2
+  exit 1
+fi
+
+echo "-----> Creating frontend auth service $SERVICE"
+
+# Create service directory
+mkdir -p "$SERVICE_ROOT/config" "$SERVICE_ROOT/data"
+echo "$DEFAULT_FRONTEND_PROVIDER" > "$SERVICE_ROOT/PROVIDER"
+
+# Ensure auth network exists
+if ! docker network ls -q -f "name=^${AUTH_NETWORK}$" | grep -q .; then
+  echo "       Creating network $AUTH_NETWORK"
+  docker network create "$AUTH_NETWORK" >/dev/null
+fi
+
+# Load provider and create container
+load_frontend_provider "$SERVICE"
+provider_create_container "$SERVICE"
+
+echo "-----> Frontend service $SERVICE created"
+echo ""
+echo "       Next steps:"
+echo "       1. Configure domain: dokku auth:frontend:config $SERVICE DOMAIN=auth.example.com"
+echo "       2. Link to directory: dokku auth:frontend:use-directory $SERVICE <directory-service>"
+echo "       3. Apply config:      dokku auth:frontend:apply $SERVICE"

@@ -1,0 +1,7 @@
+[plugin]
+description = "LDAP directory and SSO authentication for dokku apps"
+version = "0.1.0"
+authors = ["Dean Marano"]
+license = "MIT"
+
+[plugin.config]

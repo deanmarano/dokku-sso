@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+APP="$2"
+
+if [[ -z "$SERVICE" ]] || [[ -z "$APP" ]]; then
+  echo "Usage: dokku auth:link <service> <app>" >&2
+  echo "" >&2
+  echo "Link an app to a directory service" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+
+# Check if service exists
+if ! directory_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE does not exist" >&2
+  echo "       Run: dokku auth:create $SERVICE" >&2
+  exit 1
+fi
+
+# Check if app exists
+if ! dokku apps:exists "$APP" 2>/dev/null; then
+  echo "!     App $APP does not exist" >&2
+  exit 1
+fi
+
+load_directory_provider "$SERVICE"
+
+# Check if already linked
+REFRESHING=""
+if grep -q "^${APP}$" "$SERVICE_ROOT/LINKS" 2>/dev/null; then
+  REFRESHING="true"
+  echo "-----> Refreshing $APP link to directory service $SERVICE"
+else
+  echo "-----> Linking $APP to directory service $SERVICE"
+fi
+
+# Get bind credentials from provider
+declare -A CREDS
+while IFS='=' read -r key value; do
+  CREDS[$key]="$value"
+done < <(provider_get_bind_credentials "$SERVICE")
+
+# Set environment variables on the app
+echo "-----> Setting LDAP environment variables"
+dokku config:set --no-restart "$APP" \
+  "LDAP_URL=${CREDS[LDAP_URL]}" \
+  "LDAP_BASE_DN=${CREDS[LDAP_BASE_DN]}" \
+  "LDAP_BIND_DN=${CREDS[LDAP_BIND_DN]}" \
+  "LDAP_BIND_PASSWORD=${CREDS[LDAP_BIND_PASSWORD]}" \
+  >/dev/null
+
+echo "       LDAP_URL=${CREDS[LDAP_URL]}"
+echo "       LDAP_BASE_DN=${CREDS[LDAP_BASE_DN]}"
+echo "       LDAP_BIND_DN=${CREDS[LDAP_BIND_DN]}"
+echo "       LDAP_BIND_PASSWORD=<hidden>"
+
+# Attach app to auth network
+echo "-----> Attaching $APP to auth network"
+dokku network:set "$APP" attach-post-deploy "$AUTH_NETWORK" 2>/dev/null || true
+
+# Create app-specific group
+GROUP_NAME="${APP}_users"
+echo "-----> Creating group $GROUP_NAME"
+if provider_create_group "$SERVICE" "$GROUP_NAME"; then
+  echo "       Group created"
+else
+  echo "       Group already exists or creation failed"
+fi
+
+# Copy members from default group to app group
+echo "-----> Syncing members from $DEFAULT_USERS_GROUP to $GROUP_NAME"
+MEMBERS_ADDED=0
+while IFS= read -r user_id; do
+  [[ -z "$user_id" ]] && continue
+  provider_add_user_to_group "$SERVICE" "$user_id" "$GROUP_NAME" 2>/dev/null || true
+  MEMBERS_ADDED=$((MEMBERS_ADDED + 1))
+done < <(provider_get_group_members "$SERVICE" "$DEFAULT_USERS_GROUP")
+echo "       Added $MEMBERS_ADDED member(s)"
+
+# Record the link
+if [[ -z "$REFRESHING" ]]; then
+  echo "$APP" >> "$SERVICE_ROOT/LINKS"
+fi
+
+# Store which vars were set (for unlink)
+mkdir -p "$SERVICE_ROOT/linked-vars"
+echo "LDAP_URL" > "$SERVICE_ROOT/linked-vars/$APP"
+echo "LDAP_BASE_DN" >> "$SERVICE_ROOT/linked-vars/$APP"
+echo "LDAP_BIND_DN" >> "$SERVICE_ROOT/linked-vars/$APP"
+echo "LDAP_BIND_PASSWORD" >> "$SERVICE_ROOT/linked-vars/$APP"
+
+echo "-----> $APP linked to $SERVICE"
+echo ""
+echo "       Restart your app to apply changes:"
+echo "         dokku ps:restart $APP"
+echo ""
+echo "       To configure LDAP in your app, use this group filter:"
+echo "         (memberof=cn=${GROUP_NAME},ou=groups,${CREDS[LDAP_BASE_DN]})"

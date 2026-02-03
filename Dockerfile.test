@@ -1,0 +1,73 @@
+FROM node:20-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    openssh-client \
+    ldap-utils \
+    netcat-openbsd \
+    curl \
+    docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Playwright system dependencies
+RUN npx playwright install-deps chromium
+
+WORKDIR /app
+
+# Copy package files first for caching
+COPY package*.json ./
+
+# Install npm dependencies
+RUN npm ci
+
+# Install Playwright browsers
+RUN npx playwright install chromium
+
+# Generate SSH key for dokku access
+RUN mkdir -p /root/.ssh && \
+    ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N "" && \
+    chmod 600 /root/.ssh/id_ed25519
+
+# Copy test files
+COPY . .
+
+# Script to set up SSH access to dokku
+COPY <<'EOF' /usr/local/bin/setup-dokku-ssh
+#!/bin/bash
+set -e
+
+# Wait for dokku to be ready
+echo "Waiting for dokku..."
+until nc -z dokku 22 2>/dev/null; do
+    sleep 1
+done
+
+# Add dokku to known hosts
+ssh-keyscan -p 22 dokku >> /root/.ssh/known_hosts 2>/dev/null || true
+
+# Add our SSH key to dokku
+echo "Adding SSH key to dokku..."
+cat /root/.ssh/id_ed25519.pub | ssh -o StrictHostKeyChecking=no -p 22 root@dokku "cat >> /root/.ssh/authorized_keys" 2>/dev/null || \
+    echo "Note: Could not add SSH key, using docker exec instead"
+
+echo "Dokku connection ready"
+EOF
+RUN chmod +x /usr/local/bin/setup-dokku-ssh
+
+# Wrapper script to run dokku commands
+COPY <<'EOF' /usr/local/bin/dokku
+#!/bin/bash
+# Try SSH first, fall back to docker exec
+if ssh -o BatchMode=yes -o ConnectTimeout=5 -p ${DOKKU_SSH_PORT:-22} dokku@${DOKKU_HOST:-dokku} "$@" 2>/dev/null; then
+    exit 0
+else
+    # Fall back to docker exec
+    docker exec dokku-dokku-1 dokku "$@" 2>/dev/null || \
+    docker exec dokku_dokku_1 dokku "$@" 2>/dev/null || \
+    docker exec dokku dokku "$@"
+fi
+EOF
+RUN chmod +x /usr/local/bin/dokku
+
+# Default command
+CMD ["npm", "run", "test:all"]

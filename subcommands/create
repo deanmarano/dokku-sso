@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+SERVICE="$1"
+
+if [[ -z "$SERVICE" ]]; then
+  echo "Usage: dokku auth:create <service>" >&2
+  echo "" >&2
+  echo "Create a new directory service" >&2
+  exit 1
+fi
+
+# Validate service name
+if [[ ! "$SERVICE" =~ ^[a-z][a-z0-9-]*$ ]]; then
+  echo "!     Service name must start with a letter and contain only lowercase letters, numbers, and hyphens" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+
+# Check if service already exists
+if directory_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE already exists" >&2
+  exit 1
+fi
+
+echo "-----> Creating directory service $SERVICE"
+
+# Ensure auth network exists
+if ! docker network ls -q -f "name=^${AUTH_NETWORK}$" | grep -q .; then
+  echo "       Creating network $AUTH_NETWORK"
+  docker network create "$AUTH_NETWORK" >/dev/null
+fi
+
+# Create service directory
+mkdir -p "$SERVICE_ROOT/config"
+mkdir -p "$SERVICE_ROOT/data"
+mkdir -p "$SERVICE_ROOT/linked-vars"
+
+# Set default provider
+echo "$DEFAULT_DIRECTORY_PROVIDER" > "$SERVICE_ROOT/PROVIDER"
+
+# Load provider and create container
+load_directory_provider "$SERVICE"
+provider_create_container "$SERVICE"
+
+# Store metadata
+echo "$(get_directory_container_name "$SERVICE")" > "$SERVICE_ROOT/CONTAINER_NAME"
+echo "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION" > "$SERVICE_ROOT/IMAGE"
+touch "$SERVICE_ROOT/LINKS"
+
+echo "-----> Directory service $SERVICE created"
+provider_info "$SERVICE"
+echo ""
+echo "       Next steps:"
+echo "         dokku auth:link $SERVICE <app>"
+echo ""
+
+# Show credentials
+CONFIG_DIR="$SERVICE_ROOT/config"
+if [[ -f "$CONFIG_DIR/ADMIN_PASSWORD" ]]; then
+  echo "       Admin credentials:"
+  echo "         Username: admin"
+  echo "         Password: $(cat "$CONFIG_DIR/ADMIN_PASSWORD")"
+  echo ""
+  echo "       IMPORTANT: Save these credentials - they won't be shown again!"
+fi

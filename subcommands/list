@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+QUIET=""
+for arg in "$@"; do
+  case "$arg" in
+    -q|--quiet)
+      QUIET="true"
+      ;;
+  esac
+done
+
+# List directory services
+if [[ -z "$QUIET" ]]; then
+  echo "=====> Directory services"
+fi
+
+if [[ -d "$PLUGIN_DATA_ROOT/directory" ]]; then
+  for service_dir in "$PLUGIN_DATA_ROOT/directory"/*/; do
+    [[ -d "$service_dir" ]] || continue
+
+    SERVICE=$(basename "$service_dir")
+    PROVIDER=$(cat "$service_dir/PROVIDER" 2>/dev/null || echo "unknown")
+    LINK_COUNT=$(wc -l < "$service_dir/LINKS" 2>/dev/null | tr -d ' ' || echo "0")
+
+    if [[ -n "$QUIET" ]]; then
+      echo "$SERVICE"
+    else
+      # Check if running
+      CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+      if docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+        STATUS="running"
+      else
+        STATUS="stopped"
+      fi
+
+      echo "       $SERVICE ($PROVIDER) - $LINK_COUNT app(s) - $STATUS"
+    fi
+  done
+fi
+
+if [[ -z "$QUIET" ]]; then
+  # Check if any services exist
+  if ! ls -A "$PLUGIN_DATA_ROOT/directory" 2>/dev/null | grep -q .; then
+    echo "       No directory services"
+  fi
+fi

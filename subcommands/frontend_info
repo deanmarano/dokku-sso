@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+
+if [[ -z "$SERVICE" ]]; then
+  echo "Usage: dokku auth:frontend:info <service>" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
+
+if ! frontend_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+load_frontend_provider "$SERVICE"
+
+echo "=====> $SERVICE frontend service information"
+
+# Provider info
+provider_info "$SERVICE"
+
+# Container status
+CONTAINER_NAME=$(get_frontend_container_name "$SERVICE")
+echo ""
+echo "-----> Status"
+if docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+  echo "       Container: running"
+  echo "       Uptime: $(docker inspect -f '{{.State.StartedAt}}' "$CONTAINER_NAME" 2>/dev/null || echo 'unknown')"
+elif docker ps -aq -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+  echo "       Container: stopped"
+else
+  echo "       Container: not created"
+fi
+
+# Protected apps
+echo ""
+echo "-----> Protected Apps"
+if [[ -s "$SERVICE_ROOT/PROTECTED" ]]; then
+  while IFS= read -r app; do
+    [[ -z "$app" ]] && continue
+    echo "       - $app"
+  done < "$SERVICE_ROOT/PROTECTED"
+else
+  echo "       (none)"
+fi
+
+# OIDC clients
+CONFIG_DIR="$SERVICE_ROOT/config"
+if [[ -f "$CONFIG_DIR/OIDC_ENABLED" ]] && [[ "$(cat "$CONFIG_DIR/OIDC_ENABLED")" == "true" ]]; then
+  echo ""
+  echo "-----> OIDC Clients"
+  if [[ -d "$CONFIG_DIR/oidc_clients" ]]; then
+    for client_file in "$CONFIG_DIR/oidc_clients"/*; do
+      [[ -f "$client_file" ]] || continue
+      CLIENT_ID=$(basename "$client_file")
+      REDIRECT_URI=$(grep '^REDIRECT_URI=' "$client_file" | cut -d= -f2-)
+      echo "       - $CLIENT_ID -> $REDIRECT_URI"
+    done
+  fi
+  if [[ -z "$(ls -A "$CONFIG_DIR/oidc_clients" 2>/dev/null)" ]]; then
+    echo "       (none)"
+  fi
+fi

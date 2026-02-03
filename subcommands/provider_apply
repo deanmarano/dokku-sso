@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+
+if [[ -z "$SERVICE" ]]; then
+  echo "Usage: dokku auth:provider:apply <service>" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+
+if ! directory_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+load_directory_provider "$SERVICE"
+
+echo "-----> Applying configuration for $SERVICE"
+
+# Validate configuration
+echo "       Validating configuration..."
+if ! provider_validate_config "$SERVICE"; then
+  echo "!     Configuration validation failed" >&2
+  exit 1
+fi
+
+# Stop existing container if running
+CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+if docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+  echo "       Stopping existing container..."
+  provider_destroy "$SERVICE"
+fi
+
+# Create new container
+echo "       Creating container..."
+provider_create_container "$SERVICE"
+
+# Verify it's working
+echo "       Verifying service..."
+if provider_verify "$SERVICE"; then
+  echo "-----> Configuration applied successfully"
+else
+  echo "!     Service verification failed" >&2
+  exit 1
+fi
+
+# Refresh linked apps
+if [[ -s "$SERVICE_ROOT/LINKS" ]]; then
+  echo "-----> Refreshing linked apps"
+  while IFS= read -r app; do
+    [[ -z "$app" ]] && continue
+    echo "       Refreshing $app..."
+    "$PLUGIN_BASE_PATH/subcommands/link" "$SERVICE" "$app" >/dev/null 2>&1 || true
+  done < "$SERVICE_ROOT/LINKS"
+fi

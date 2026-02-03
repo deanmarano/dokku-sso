@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+
+if [[ -z "$SERVICE" ]]; then
+  echo "Usage: dokku auth:frontend:logs <service> [options]" >&2
+  echo "" >&2
+  echo "Options:" >&2
+  echo "  -t, --tail NUM   Number of lines to show" >&2
+  echo "  -f, --follow     Follow log output" >&2
+  exit 1
+fi
+
+if ! frontend_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+load_frontend_provider "$SERVICE"
+
+provider_logs "$SERVICE" "$@"

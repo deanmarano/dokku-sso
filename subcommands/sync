@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+
+if [[ -z "$SERVICE" ]]; then
+  echo "Usage: dokku auth:sync <service>" >&2
+  echo "" >&2
+  echo "Sync members from default group to all app groups" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+
+if ! directory_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+load_directory_provider "$SERVICE"
+
+echo "=====> Syncing default group members for $SERVICE"
+
+# Get members of default group
+echo "-----> Getting members of $DEFAULT_USERS_GROUP"
+DEFAULT_MEMBERS=()
+while IFS= read -r user_id; do
+  [[ -z "$user_id" ]] && continue
+  DEFAULT_MEMBERS+=("$user_id")
+done < <(provider_get_group_members "$SERVICE" "$DEFAULT_USERS_GROUP")
+
+echo "       Found ${#DEFAULT_MEMBERS[@]} member(s) in default group"
+
+if [[ ${#DEFAULT_MEMBERS[@]} -eq 0 ]]; then
+  echo "       No members to sync"
+  exit 0
+fi
+
+# Get linked apps
+if [[ ! -s "$SERVICE_ROOT/LINKS" ]]; then
+  echo "       No linked apps"
+  exit 0
+fi
+
+# Sync to each app group
+TOTAL_ADDED=0
+while IFS= read -r app; do
+  [[ -z "$app" ]] && continue
+
+  GROUP_NAME="${app}_users"
+  echo "-----> Syncing to $GROUP_NAME"
+
+  # Ensure group exists
+  provider_create_group "$SERVICE" "$GROUP_NAME" 2>/dev/null || true
+
+  # Add each member
+  ADDED=0
+  for user_id in "${DEFAULT_MEMBERS[@]}"; do
+    if provider_add_user_to_group "$SERVICE" "$user_id" "$GROUP_NAME" 2>/dev/null; then
+      ADDED=$((ADDED + 1))
+    fi
+  done
+
+  echo "       Added $ADDED member(s)"
+  TOTAL_ADDED=$((TOTAL_ADDED + ADDED))
+done < "$SERVICE_ROOT/LINKS"
+
+echo "=====> Sync complete: $TOTAL_ADDED total additions"

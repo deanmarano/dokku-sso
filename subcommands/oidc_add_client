@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+CLIENT_ID="$2"
+CLIENT_SECRET="$3"
+REDIRECT_URI="$4"
+
+if [[ -z "$SERVICE" ]] || [[ -z "$CLIENT_ID" ]]; then
+  echo "Usage: dokku auth:oidc:add-client <frontend-service> <client-id> [client-secret] [redirect-uri]" >&2
+  echo "" >&2
+  echo "If client-secret is not provided, one will be generated." >&2
+  echo "If redirect-uri is not provided, it defaults to https://<client-id>/oauth2/callback" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
+
+if ! frontend_service_exists "$SERVICE"; then
+  echo "!     Frontend service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+CONFIG_DIR="$SERVICE_ROOT/config"
+
+# Check OIDC is enabled
+if [[ ! -f "$CONFIG_DIR/OIDC_ENABLED" ]] || [[ "$(cat "$CONFIG_DIR/OIDC_ENABLED")" != "true" ]]; then
+  echo "!     OIDC is not enabled for $SERVICE" >&2
+  echo "       Run 'dokku auth:oidc:enable $SERVICE' first" >&2
+  exit 1
+fi
+
+# Generate secret if not provided
+if [[ -z "$CLIENT_SECRET" ]]; then
+  CLIENT_SECRET=$(openssl rand -hex 32)
+  echo "-----> Generated client secret for $CLIENT_ID"
+fi
+
+# Default redirect URI
+if [[ -z "$REDIRECT_URI" ]]; then
+  REDIRECT_URI="https://${CLIENT_ID}/oauth2/callback"
+fi
+
+# Check if client already exists
+if [[ -f "$CONFIG_DIR/oidc_clients/$CLIENT_ID" ]]; then
+  echo "!     Client $CLIENT_ID already exists" >&2
+  echo "       Remove it first with: dokku auth:oidc:remove-client $SERVICE $CLIENT_ID" >&2
+  exit 1
+fi
+
+echo "-----> Adding OIDC client $CLIENT_ID"
+
+load_frontend_provider "$SERVICE"
+provider_add_oidc_client "$SERVICE" "$CLIENT_ID" "$CLIENT_SECRET" "$REDIRECT_URI"
+
+echo "-----> Client added"
+echo ""
+echo "       Client ID:     $CLIENT_ID"
+echo "       Client Secret: $CLIENT_SECRET"
+echo "       Redirect URI:  $REDIRECT_URI"
+echo ""
+echo "       Run 'dokku auth:frontend:apply $SERVICE' to apply changes"
+echo ""
+echo "       IMPORTANT: Save the client secret - it cannot be retrieved later!"

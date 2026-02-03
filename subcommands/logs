@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+shift || true
+
+if [[ -z "$SERVICE" ]]; then
+  echo "Usage: dokku auth:logs <service> [-t|--tail] [-n <lines>]" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+
+# Check if service exists
+if ! directory_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+load_directory_provider "$SERVICE"
+
+# Parse docker logs options
+DOCKER_OPTS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -t|--tail)
+      DOCKER_OPTS+=("-f")
+      shift
+      ;;
+    -n)
+      DOCKER_OPTS+=("--tail" "$2")
+      shift 2
+      ;;
+    *)
+      DOCKER_OPTS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+provider_logs "$SERVICE" "${DOCKER_OPTS[@]}"

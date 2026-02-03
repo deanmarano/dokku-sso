@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+PROVIDER="$2"
+
+if [[ -z "$SERVICE" ]] || [[ -z "$PROVIDER" ]]; then
+  echo "Usage: dokku auth:frontend:provider:set <service> <provider>" >&2
+  echo "" >&2
+  echo "Available providers:"
+  list_frontend_providers | sed 's/^/  /'
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
+
+if ! frontend_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+# Check provider exists
+PROVIDER_PATH="$PLUGIN_BASE_PATH/providers/frontend/$PROVIDER/provider.sh"
+if [[ ! -f "$PROVIDER_PATH" ]]; then
+  echo "!     Unknown provider: $PROVIDER" >&2
+  echo "       Available providers:"
+  list_frontend_providers | sed 's/^/         /'
+  exit 1
+fi
+
+CURRENT_PROVIDER=$(cat "$SERVICE_ROOT/PROVIDER" 2>/dev/null || echo "")
+
+if [[ "$CURRENT_PROVIDER" == "$PROVIDER" ]]; then
+  echo "       Service $SERVICE already uses provider $PROVIDER"
+  exit 0
+fi
+
+echo "-----> Setting provider for $SERVICE to $PROVIDER"
+
+# Warn about data loss
+if [[ -n "$CURRENT_PROVIDER" ]]; then
+  echo "!     WARNING: Changing provider may result in data loss"
+  echo "       Current provider: $CURRENT_PROVIDER"
+  echo "       New provider: $PROVIDER"
+  echo ""
+  echo -n "       Type 'yes' to confirm: "
+  read -r CONFIRM
+  if [[ "$CONFIRM" != "yes" ]]; then
+    echo "       Aborted"
+    exit 1
+  fi
+
+  # Stop and remove old container
+  load_frontend_provider "$SERVICE"
+  provider_destroy "$SERVICE" 2>/dev/null || true
+fi
+
+# Set new provider
+echo "$PROVIDER" > "$SERVICE_ROOT/PROVIDER"
+
+echo "-----> Provider set to $PROVIDER"
+echo "       Run 'dokku auth:frontend:apply $SERVICE' to apply changes"

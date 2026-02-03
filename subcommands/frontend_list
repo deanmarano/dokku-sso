@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+FRONTEND_DIR="$PLUGIN_DATA_ROOT/frontend"
+
+if [[ ! -d "$FRONTEND_DIR" ]] || [[ -z "$(ls -A "$FRONTEND_DIR" 2>/dev/null)" ]]; then
+  echo "No frontend services found"
+  exit 0
+fi
+
+echo "=====> Frontend Auth Services"
+
+for service_dir in "$FRONTEND_DIR"/*/; do
+  [[ -d "$service_dir" ]] || continue
+
+  SERVICE=$(basename "$service_dir")
+  PROVIDER=$(cat "$service_dir/PROVIDER" 2>/dev/null || echo "unknown")
+  CONTAINER_NAME=$(get_frontend_container_name "$SERVICE")
+
+  # Check container status
+  if docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+    STATUS="running"
+  elif docker ps -aq -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+    STATUS="stopped"
+  else
+    STATUS="not created"
+  fi
+
+  # Count protected apps
+  PROTECTED_COUNT=0
+  if [[ -f "$service_dir/PROTECTED" ]]; then
+    PROTECTED_COUNT=$(wc -l < "$service_dir/PROTECTED" | tr -d ' ')
+  fi
+
+  # Get directory link
+  DIRECTORY=$(cat "$service_dir/DIRECTORY" 2>/dev/null || echo "-")
+
+  echo "       $SERVICE ($PROVIDER) - $STATUS - directory: $DIRECTORY - protected: $PROTECTED_COUNT"
+done

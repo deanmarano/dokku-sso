@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
+
+echo "-----> Creating auth service directories"
+mkdir -p "$PLUGIN_DATA_ROOT/directory"
+mkdir -p "$PLUGIN_DATA_ROOT/frontend"
+mkdir -p "$PLUGIN_DATA_ROOT/app-vars"
+
+chown -R "${DOKKU_SYSTEM_USER:-dokku}:${DOKKU_SYSTEM_GROUP:-dokku}" "$PLUGIN_DATA_ROOT" 2>/dev/null || true
+
+# Create shared network for auth services
+echo "-----> Creating auth network"
+docker network create "$AUTH_NETWORK" 2>/dev/null || true
+
+echo "-----> Auth plugin installed successfully"

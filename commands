@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+PLUGIN_BASE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$PLUGIN_BASE_PATH/config"
+
+# Only handle auth commands
+[[ " auth:help auth " == *" $1 "* ]] || [[ "$1" == "auth:"* ]] || exit "$DOKKU_NOT_IMPLEMENTED_EXIT"
+
+show_help() {
+  cat << EOF
+usage: dokku auth[:COMMAND]
+
+Manage LDAP directory and SSO authentication for apps.
+
+Example:
+
+    $ dokku auth:list
+      Directory services:
+        production (lldap) - 3 apps
+        staging (lldap) - 1 app
+
+dokku auth directory commands:
+
+    auth:create <service>                        create directory service
+    auth:destroy <service> [-f|--force]          delete directory service
+    auth:list                                    list all directory services
+    auth:info <service>                          print service information
+    auth:logs <service> [-t|--tail]              print container logs
+    auth:status <service> [-q|--quiet]           show status (exit: 0=healthy, 2=down)
+    auth:doctor <service>                        diagnose and fix issues
+
+    auth:link <service> <app>                    link app to directory service
+    auth:unlink <service> <app>                  unlink app from directory
+    auth:sync <service>                          sync default group to app groups
+    auth:credentials <service>                   show LDAP bind credentials
+
+    auth:provider:set <service> <provider>       set directory provider
+    auth:provider:config <service> KEY=value     configure provider settings
+    auth:provider:apply <service>                apply configuration changes
+    auth:providers                               list available providers
+
+dokku auth:frontend commands:
+
+    auth:frontend:create <service>               create frontend service
+    auth:frontend:destroy <service> [-f|--force] delete frontend service
+    auth:frontend:list                           list all frontend services
+    auth:frontend:info <service>                 print frontend information
+    auth:frontend:status <service>               show status (exit: 0=up, 1=down)
+    auth:frontend:logs <service> [-t|--tail]     print container logs
+
+    auth:frontend:use-directory <svc> <dir-svc>  link frontend to directory
+    auth:frontend:protect <service> <app>        add SSO protection to app
+    auth:frontend:unprotect <service> <app>      remove SSO protection
+
+    auth:frontend:provider:set <service> <prov>  set frontend provider
+    auth:frontend:provider:config <svc> KEY=val  configure provider settings
+    auth:frontend:provider:apply <service>       apply configuration changes
+
+dokku auth:oidc commands:
+
+    auth:oidc:enable <service>                   enable OIDC on frontend
+    auth:oidc:disable <service>                  disable OIDC on frontend
+    auth:oidc:add-client <svc> <id> [secret] [uri]  register OIDC client
+    auth:oidc:remove-client <service> <id>       remove OIDC client
+    auth:oidc:list <service>                     list registered clients
+
+Directory providers: lldap (default), glauth, openldap, kanidm
+Frontend providers:  authelia (default), authentik, vouch
+EOF
+}
+
+case "$1" in
+  auth|auth:help)
+    show_help
+    ;;
+  auth:*)
+    subcommand="${1#auth:}"
+    shift
+
+    # Map subcommands to files (handle nested commands like frontend:create)
+    # Convert colons and hyphens to underscores
+    normalized_subcommand="${subcommand//:/_}"
+    normalized_subcommand="${normalized_subcommand//-/_}"
+    subcommand_file="$PLUGIN_BASE_PATH/subcommands/$normalized_subcommand"
+
+    if [[ -x "$subcommand_file" ]]; then
+      exec "$subcommand_file" "$@"
+    else
+      echo "Unknown command: auth:$subcommand" >&2
+      echo "Run 'dokku auth:help' for usage" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    exit "$DOKKU_NOT_IMPLEMENTED_EXIT"
+    ;;
+esac

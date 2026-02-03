@@ -1,0 +1,27 @@
+{
+  "name": "dokku-auth-tests",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --project=auth-ui",
+    "test:e2e:full": "playwright test --project=full-stack",
+    "test:e2e:apps": "playwright test --project=app-integration",
+    "test:e2e:gitea": "playwright test gitea-integration",
+    "test:e2e:nextcloud": "playwright test nextcloud-integration",
+    "test:coverage": "vitest run --coverage",
+    "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "@types/node": "^20.10.0",
+    "ldapjs": "^3.0.7",
+    "otplib": "^12.0.1",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  }
+}

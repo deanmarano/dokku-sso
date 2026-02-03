@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+QUIET=""
+
+# Parse arguments
+for arg in "$@"; do
+  case "$arg" in
+    -q|--quiet)
+      QUIET="true"
+      ;;
+  esac
+done
+
+if [[ -z "$SERVICE" ]]; then
+  echo "Usage: dokku auth:status <service> [-q|--quiet]" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+
+# Check if service exists
+if ! directory_service_exists "$SERVICE"; then
+  [[ -z "$QUIET" ]] && echo "!     Service $SERVICE does not exist" >&2
+  exit 2
+fi
+
+load_directory_provider "$SERVICE"
+
+CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+
+# Check if container is running
+if ! docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+  [[ -z "$QUIET" ]] && echo "Service $SERVICE is not running"
+  exit 2
+fi
+
+# Verify service is healthy
+if provider_is_running "$SERVICE" && provider_verify "$SERVICE" >/dev/null 2>&1; then
+  [[ -z "$QUIET" ]] && echo "Service $SERVICE is healthy"
+  exit 0
+else
+  [[ -z "$QUIET" ]] && echo "Service $SERVICE is degraded"
+  exit 1
+fi

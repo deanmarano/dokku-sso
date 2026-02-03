@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+APP="$2"
+
+if [[ -z "$SERVICE" ]] || [[ -z "$APP" ]]; then
+  echo "Usage: dokku auth:unlink <service> <app>" >&2
+  echo "" >&2
+  echo "Unlink an app from a directory service" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+
+# Check if service exists
+if ! directory_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+# Check if app is linked
+if ! grep -q "^${APP}$" "$SERVICE_ROOT/LINKS" 2>/dev/null; then
+  echo "!     App $APP is not linked to service $SERVICE" >&2
+  exit 1
+fi
+
+echo "-----> Unlinking $APP from directory service $SERVICE"
+
+# Remove environment variables
+LINKED_VARS_FILE="$SERVICE_ROOT/linked-vars/$APP"
+if [[ -f "$LINKED_VARS_FILE" ]]; then
+  VARS_TO_UNSET=()
+  while IFS= read -r var; do
+    [[ -z "$var" ]] && continue
+    VARS_TO_UNSET+=("$var")
+  done < "$LINKED_VARS_FILE"
+
+  if [[ ${#VARS_TO_UNSET[@]} -gt 0 ]]; then
+    echo "-----> Removing LDAP environment variables"
+    dokku config:unset --no-restart "$APP" "${VARS_TO_UNSET[@]}" >/dev/null || true
+  fi
+
+  rm -f "$LINKED_VARS_FILE"
+fi
+
+# Detach from auth network
+echo "-----> Detaching $APP from auth network"
+dokku network:set "$APP" attach-post-deploy "" 2>/dev/null || true
+
+# Remove from links file
+grep -v "^${APP}$" "$SERVICE_ROOT/LINKS" > "$SERVICE_ROOT/LINKS.tmp" || true
+mv "$SERVICE_ROOT/LINKS.tmp" "$SERVICE_ROOT/LINKS"
+
+echo "-----> $APP unlinked from $SERVICE"
+echo ""
+echo "       Restart your app to apply changes:"
+echo "         dokku ps:restart $APP"
+echo ""
+echo "       Note: The group ${APP}_users was not deleted from LLDAP."
+echo "       Remove it manually if no longer needed."

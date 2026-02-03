@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+export PLUGIN_COMMAND_PREFIX="auth"
+export PLUGIN_SERVICE="auth"
+export PLUGIN_DATA_ROOT="${DOKKU_LIB_ROOT:-/var/lib/dokku}/services/auth"
+export PLUGIN_BASE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Dokku may or may not pass the command name as $1 depending on version/config
+# This function strips it if present
+strip_command_prefix() {
+  if [[ "${1:-}" == auth:* ]]; then
+    shift
+  fi
+  echo "$@"
+}
+
+# Default directory provider
+export DEFAULT_DIRECTORY_PROVIDER="lldap"
+
+# Default frontend provider
+export DEFAULT_FRONTEND_PROVIDER="authelia"
+
+# Network for auth services to communicate
+export AUTH_NETWORK="dokku.auth.network"
+
+# Default group for users who should be added to all app groups
+export DEFAULT_USERS_GROUP="dokku-auth-default-users"

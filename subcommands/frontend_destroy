@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+FORCE=""
+
+for arg in "$@"; do
+  case "$arg" in
+    -f|--force)
+      FORCE="true"
+      ;;
+  esac
+done
+
+if [[ -z "$SERVICE" ]]; then
+  echo "Usage: dokku auth:frontend:destroy <service> [-f|--force]" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
+
+if ! frontend_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+# Check for protected apps
+if [[ -s "$SERVICE_ROOT/PROTECTED" ]] && [[ -z "$FORCE" ]]; then
+  echo "!     Service has protected apps:" >&2
+  while IFS= read -r app; do
+    echo "       - $app" >&2
+  done < "$SERVICE_ROOT/PROTECTED"
+  echo "" >&2
+  echo "       Use -f to force destroy" >&2
+  exit 1
+fi
+
+if [[ -z "$FORCE" ]]; then
+  echo "!     WARNING: This will destroy all data for $SERVICE"
+  echo -n "       Type 'yes' to confirm: "
+  read -r CONFIRM
+  if [[ "$CONFIRM" != "yes" ]]; then
+    echo "       Aborted"
+    exit 1
+  fi
+fi
+
+echo "-----> Destroying frontend service $SERVICE"
+
+# Unprotect all apps first
+if [[ -s "$SERVICE_ROOT/PROTECTED" ]]; then
+  echo "       Unprotecting apps..."
+  load_frontend_provider "$SERVICE"
+  while IFS= read -r app; do
+    [[ -z "$app" ]] && continue
+    echo "       - $app"
+    provider_unprotect_app "$SERVICE" "$app" 2>/dev/null || true
+  done < "$SERVICE_ROOT/PROTECTED"
+fi
+
+# Stop and remove container
+load_frontend_provider "$SERVICE"
+provider_destroy "$SERVICE"
+
+# Remove service directory (may need elevated permissions for container-created files)
+if [[ -d "$SERVICE_ROOT" ]]; then
+  # Try normal rm first, fallback to sudo if needed (but only if not already root)
+  if ! rm -rf "$SERVICE_ROOT" 2>/dev/null; then
+    if [[ "$(id -u)" != "0" ]]; then
+      sudo rm -rf "$SERVICE_ROOT"
+    else
+      # Already root, try with more force
+      rm -rf "$SERVICE_ROOT" || true
+    fi
+  fi
+fi
+
+echo "-----> Service $SERVICE destroyed"

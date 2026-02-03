@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+
+if [[ -z "$SERVICE" ]]; then
+  echo "Usage: dokku auth:oidc:enable <frontend-service>" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
+
+if ! frontend_service_exists "$SERVICE"; then
+  echo "!     Frontend service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+CONFIG_DIR="$SERVICE_ROOT/config"
+
+if [[ -f "$CONFIG_DIR/OIDC_ENABLED" ]] && [[ "$(cat "$CONFIG_DIR/OIDC_ENABLED")" == "true" ]]; then
+  echo "       OIDC is already enabled for $SERVICE"
+  exit 0
+fi
+
+echo "-----> Enabling OIDC for $SERVICE"
+
+load_frontend_provider "$SERVICE"
+provider_enable_oidc "$SERVICE"
+
+echo "-----> OIDC enabled"
+echo ""
+echo "       Run 'dokku auth:frontend:apply $SERVICE' or 'dokku auth:frontend:provider:apply $SERVICE' to apply changes"
+echo ""
+echo "       Add clients with: dokku auth:oidc:add-client $SERVICE <client-id> <client-secret> <redirect-uri>"

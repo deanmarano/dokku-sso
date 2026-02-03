@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+FORCE=""
+
+# Parse arguments
+for arg in "$@"; do
+  case "$arg" in
+    -f|--force)
+      FORCE="true"
+      ;;
+  esac
+done
+
+if [[ -z "$SERVICE" ]]; then
+  echo "Usage: dokku auth:destroy <service> [-f|--force]" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+
+# Check if service exists
+if ! directory_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+# Check for linked apps
+if [[ -s "$SERVICE_ROOT/LINKS" ]] && [[ -z "$FORCE" ]]; then
+  echo "!     Service has linked apps:" >&2
+  cat "$SERVICE_ROOT/LINKS" | sed 's/^/         /' >&2
+  echo "" >&2
+  echo "       Use --force to destroy anyway, or unlink apps first:" >&2
+  echo "         dokku auth:unlink $SERVICE <app>" >&2
+  exit 1
+fi
+
+# Confirm destruction
+if [[ -z "$FORCE" ]]; then
+  echo "!     WARNING: This will permanently delete service $SERVICE and all its data" >&2
+  echo -n "       Type the service name to confirm: " >&2
+  read -r CONFIRM
+  if [[ "$CONFIRM" != "$SERVICE" ]]; then
+    echo "!     Confirmation failed" >&2
+    exit 1
+  fi
+fi
+
+echo "-----> Destroying directory service $SERVICE"
+
+# Load provider and destroy container
+load_directory_provider "$SERVICE"
+provider_destroy "$SERVICE"
+
+# Remove service directory
+# Container may have created files as different user, so try docker cleanup first
+if [[ -d "$SERVICE_ROOT/data" ]]; then
+  docker run --rm -v "$SERVICE_ROOT:/svc" busybox sh -c "rm -rf /svc/*" 2>/dev/null || \
+  docker run --rm -v "$SERVICE_ROOT:/svc" alpine sh -c "rm -rf /svc/*" 2>/dev/null || \
+  rm -rf "$SERVICE_ROOT"/* 2>/dev/null || true
+fi
+rm -rf "$SERVICE_ROOT" 2>/dev/null || true
+
+echo "-----> Directory service $SERVICE destroyed"

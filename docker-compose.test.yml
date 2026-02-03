@@ -1,0 +1,61 @@
+services:
+  dokku:
+    image: dokku/dokku:latest
+    privileged: true
+    hostname: dokku.test
+    ports:
+      - "3022:22"
+      - "8080:80"
+      - "8443:443"
+      # Use alternate ports to avoid conflicts
+      - "17171:17170"  # LLDAP HTTP
+      - "19091:9091"   # Authelia
+    volumes:
+      - dokku-data:/mnt/dokku
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/plugin-src:ro
+    environment:
+      - DOKKU_HOSTNAME=dokku.test
+      - DOKKU_SKIP_KEY_FILE=true
+    healthcheck:
+      test: ["CMD", "dokku", "version"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - test-network
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    depends_on:
+      dokku:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - test-results:/app/test-results
+    environment:
+      - DOKKU_HOST=dokku
+      - DOKKU_SSH_PORT=22
+      - BASE_URL=http://dokku:17170
+      - LLDAP_URL=http://dokku:17170
+      - AUTHELIA_URL=http://dokku:9091
+      - E2E_SERVICE_NAME=e2e-test
+      # Skip global setup for now - run services manually
+      - SKIP_GLOBAL_SETUP=true
+    working_dir: /app
+    networks:
+      - test-network
+    # Keep container running for interactive use
+    tty: true
+    stdin_open: true
+
+networks:
+  test-network:
+    driver: bridge
+
+volumes:
+  dokku-data:
+  test-results:
