@@ -37,8 +37,8 @@ services:
       - test-results:/app/test-results
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - DOKKU_HOST=dokku
-      - DOKKU_SSH_PORT=22
+      # Use 'local' so tests call the dokku wrapper which uses docker exec
+      - DOKKU_HOST=local
       - BASE_URL=http://dokku:17170
       - LLDAP_URL=http://dokku:17170
       - AUTHELIA_URL=http://dokku:9091
