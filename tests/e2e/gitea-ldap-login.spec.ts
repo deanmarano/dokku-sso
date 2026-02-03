@@ -233,8 +233,10 @@ test.describe('LDAP Authentication', () => {
     expect(canAuth).toBe(true);
   });
 
-  test('should create test user in LLDAP', async () => {
+  test('should create test user and authenticate', async () => {
     const creds = getLdapCredentials();
+
+    // Create the test user
     await createLdapUser(
       LLDAP_URL,
       creds.ADMIN_PASSWORD,
@@ -242,26 +244,22 @@ test.describe('LDAP Authentication', () => {
       TEST_EMAIL,
       TEST_PASSWORD
     );
-    // If we get here without error, the user was created
-    expect(true).toBe(true);
-  });
 
-  test('test user should be able to authenticate', async () => {
+    // Verify user can authenticate
     const canAuth = await testLdapAuthentication(
       LLDAP_URL,
       TEST_USER,
       TEST_PASSWORD
     );
     expect(canAuth).toBe(true);
-  });
 
-  test('invalid password should fail authentication', async () => {
-    const canAuth = await testLdapAuthentication(
+    // Verify wrong password fails
+    const wrongAuth = await testLdapAuthentication(
       LLDAP_URL,
       TEST_USER,
       'wrongpassword'
     );
-    expect(canAuth).toBe(false);
+    expect(wrongAuth).toBe(false);
   });
 
   test('non-existent user should fail authentication', async () => {
