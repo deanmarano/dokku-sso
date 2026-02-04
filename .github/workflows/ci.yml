@@ -151,13 +151,10 @@ jobs:
           echo "=== Auth services ==="
           sudo dokku auth:list 2>/dev/null || true
 
-  # Nextcloud LDAP test is disabled due to LDAP filter/timing issues
-  # The user is created in LLDAP but Nextcloud's ldap:search doesn't find it
-  # Run manually with: npx playwright test --project=nextcloud-ldap
   e2e-nextcloud:
     name: E2E - Nextcloud LDAP
     runs-on: ubuntu-24.04
-    if: false # Disabled - see comment above
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 

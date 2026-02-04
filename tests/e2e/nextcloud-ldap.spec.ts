@@ -77,12 +77,13 @@ async function createLdapUser(
 
   const { token } = await loginResponse.json();
 
-  // Create user
+  // Create user with all required attributes
   const createUserQuery = `
     mutation CreateUser($user: CreateUserInput!) {
       createUser(user: $user) {
         id
         email
+        displayName
       }
     }
   `;
@@ -99,6 +100,9 @@ async function createLdapUser(
         user: {
           id: userId,
           email: email,
+          displayName: userId, // Set displayName same as userId for search
+          firstName: 'Test',
+          lastName: 'User',
         },
       },
     }),
@@ -152,7 +156,7 @@ function occ(containerName: string, cmd: string): string {
   }
 }
 
-// Configure Nextcloud LDAP via OCC command
+// Configure Nextcloud LDAP via OCC command for LLDAP
 function configureNextcloudLdap(
   containerName: string,
   ldapHost: string,
@@ -170,25 +174,35 @@ function configureNextcloudLdap(
   // Create LDAP config
   occ(containerName, 'ldap:create-empty-config');
 
-  // Configure LDAP settings (config s01 is the first empty config)
+  // Connection settings
   occ(containerName, `ldap:set-config s01 ldapHost "ldap://${ldapHost}"`);
   occ(containerName, `ldap:set-config s01 ldapPort 3890`);
-  occ(containerName, `ldap:set-config s01 ldapBase "${baseDn}"`);
   occ(containerName, `ldap:set-config s01 ldapAgentName "${bindDn}"`);
   occ(containerName, `ldap:set-config s01 ldapAgentPassword "${bindPassword}"`);
 
-  // User settings
+  // LLDAP-specific base DNs - users are in ou=people, groups in ou=groups
+  occ(containerName, `ldap:set-config s01 ldapBase "${baseDn}"`);
+  occ(containerName, `ldap:set-config s01 ldapBaseUsers "ou=people,${baseDn}"`);
+  occ(containerName, `ldap:set-config s01 ldapBaseGroups "ou=groups,${baseDn}"`);
+
+  // User settings for LLDAP
   occ(containerName, `ldap:set-config s01 ldapUserFilter "(objectclass=person)"`);
   occ(containerName, `ldap:set-config s01 ldapUserFilterObjectclass "person"`);
   occ(containerName, `ldap:set-config s01 ldapLoginFilter "(&(objectclass=person)(uid=%uid))"`);
   occ(containerName, `ldap:set-config s01 ldapLoginFilterUsername 1`);
-  occ(containerName, `ldap:set-config s01 ldapUserDisplayName "displayName"`);
+  occ(containerName, `ldap:set-config s01 ldapUserDisplayName "cn"`);
+  occ(containerName, `ldap:set-config s01 ldapEmailAttribute "mail"`);
+
+  // Expert settings for LLDAP compatibility
+  occ(containerName, `ldap:set-config s01 ldapExpertUsernameAttr "uid"`);
+  occ(containerName, `ldap:set-config s01 ldapExpertUUIDUserAttr "uid"`);
+  occ(containerName, `ldap:set-config s01 ldapExpertUUIDGroupAttr "cn"`);
 
   // Group settings
   occ(containerName, `ldap:set-config s01 ldapGroupFilter "(objectclass=groupOfUniqueNames)"`);
   occ(containerName, `ldap:set-config s01 ldapGroupFilterObjectclass "groupOfUniqueNames"`);
   occ(containerName, `ldap:set-config s01 ldapGroupDisplayName "cn"`);
-  occ(containerName, `ldap:set-config s01 ldapGroupMemberAssocAttr "uniqueMember"`);
+  occ(containerName, `ldap:set-config s01 ldapGroupMemberAssocAttr "member"`);
 
   // Enable the configuration
   occ(containerName, 'ldap:set-config s01 ldapConfigurationActive 1');
@@ -312,6 +326,18 @@ test.describe('Nextcloud LDAP Integration', () => {
       TEST_EMAIL,
       TEST_PASSWORD
     );
+
+    // 5. Test LDAP connection from Nextcloud
+    console.log('Testing LDAP connection...');
+    try {
+      const testResult = occ(NEXTCLOUD_CONTAINER, 'ldap:test-config s01');
+      console.log('LDAP test result:', testResult);
+    } catch (e: any) {
+      console.log('LDAP test warning:', e.message);
+    }
+
+    // Small delay to ensure LDAP sync
+    await new Promise((r) => setTimeout(r, 2000));
 
     console.log('=== Setup complete ===');
   }, 600000); // 10 minute timeout
