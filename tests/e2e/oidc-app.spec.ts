@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
+import * as fs from 'fs';
 
 /**
  * OIDC Application E2E Test - Full Browser Flow
@@ -400,7 +401,7 @@ http {
     }
 }`;
 
-    execSync(`echo '${nginxConfig}' > /tmp/nginx.conf`, { encoding: 'utf-8' });
+    fs.writeFileSync('/tmp/nginx.conf', nginxConfig);
 
     execSync(
       `docker run -d --name ${NGINX_CONTAINER} ` +
