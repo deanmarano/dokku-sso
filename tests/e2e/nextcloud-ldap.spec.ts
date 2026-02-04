@@ -352,43 +352,47 @@ test.describe('Nextcloud LDAP Integration', () => {
     } catch {}
   });
 
-  test('LDAP app should be enabled', async () => {
-    const result = occ(NEXTCLOUD_CONTAINER, 'app:list --enabled');
-    expect(result).toContain('user_ldap');
-  });
+  test('Nextcloud LDAP integration works end-to-end', async () => {
+    // Test 1: LDAP app should be enabled
+    console.log('Test: LDAP app should be enabled');
+    const appList = occ(NEXTCLOUD_CONTAINER, 'app:list --enabled');
+    expect(appList).toContain('user_ldap');
 
-  test('LDAP configuration should be active', async () => {
-    const result = occ(NEXTCLOUD_CONTAINER, 'ldap:show-config s01');
-    expect(result).toContain('ldapConfigurationActive');
-    expect(result).toContain('1');
-    expect(result).toContain('ldapHost');
-  });
+    // Test 2: LDAP configuration should be active
+    console.log('Test: LDAP configuration should be active');
+    const configResult = occ(NEXTCLOUD_CONTAINER, 'ldap:show-config s01');
+    expect(configResult).toContain('ldapConfigurationActive');
+    expect(configResult).toContain('1');
+    expect(configResult).toContain('ldapHost');
 
-  test('LDAP should find admin user', async () => {
-    const result = occ(NEXTCLOUD_CONTAINER, 'ldap:search admin');
-    expect(result.toLowerCase()).toContain('admin');
-  });
+    // Test 3: LDAP should find admin user
+    console.log('Test: LDAP should find admin user');
+    const adminSearch = occ(NEXTCLOUD_CONTAINER, 'ldap:search admin');
+    expect(adminSearch.toLowerCase()).toContain('admin');
 
-  test('LDAP should find test user', async () => {
-    const result = occ(NEXTCLOUD_CONTAINER, `ldap:search ${TEST_USER}`);
-    expect(result.toLowerCase()).toContain(TEST_USER.toLowerCase());
-  });
+    // Test 4: LDAP should find test user
+    console.log('Test: LDAP should find test user');
+    const userSearch = occ(NEXTCLOUD_CONTAINER, `ldap:search ${TEST_USER}`);
+    expect(userSearch.toLowerCase()).toContain(TEST_USER.toLowerCase());
 
-  test('LLDAP authentication should work', async () => {
-    const response = await fetch(`${LLDAP_URL}/auth/simple/login`, {
+    // Test 5: LLDAP authentication should work
+    console.log('Test: LLDAP authentication should work');
+    const authResponse = await fetch(`${LLDAP_URL}/auth/simple/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: TEST_USER, password: TEST_PASSWORD }),
     });
-    expect(response.ok).toBe(true);
-  });
+    expect(authResponse.ok).toBe(true);
 
-  test('wrong password should fail', async () => {
-    const response = await fetch(`${LLDAP_URL}/auth/simple/login`, {
+    // Test 6: Wrong password should fail
+    console.log('Test: Wrong password should fail');
+    const failResponse = await fetch(`${LLDAP_URL}/auth/simple/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: TEST_USER, password: 'wrongpassword' }),
     });
-    expect(response.ok).toBe(false);
+    expect(failResponse.ok).toBe(false);
+
+    console.log('All tests passed!');
   });
 });
