@@ -377,21 +377,34 @@ test.describe('Nextcloud LDAP Integration', () => {
 
     // Test 5: LLDAP authentication should work
     console.log('Test: LLDAP authentication should work');
-    const authResponse = await fetch(`${LLDAP_URL}/auth/simple/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: TEST_USER, password: TEST_PASSWORD }),
-    });
-    expect(authResponse.ok).toBe(true);
+    console.log(`LLDAP URL: ${LLDAP_URL}`);
+    try {
+      const authResponse = await fetch(`${LLDAP_URL}/auth/simple/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: TEST_USER, password: TEST_PASSWORD }),
+      });
+      console.log(`Auth response status: ${authResponse.status}`);
+      expect(authResponse.ok).toBe(true);
+    } catch (e: any) {
+      console.error('Auth fetch error:', e.message);
+      throw e;
+    }
 
     // Test 6: Wrong password should fail
     console.log('Test: Wrong password should fail');
-    const failResponse = await fetch(`${LLDAP_URL}/auth/simple/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: TEST_USER, password: 'wrongpassword' }),
-    });
-    expect(failResponse.ok).toBe(false);
+    try {
+      const failResponse = await fetch(`${LLDAP_URL}/auth/simple/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: TEST_USER, password: 'wrongpassword' }),
+      });
+      console.log(`Wrong password response status: ${failResponse.status}`);
+      expect(failResponse.ok).toBe(false);
+    } catch (e: any) {
+      console.error('Wrong password fetch error:', e.message);
+      throw e;
+    }
 
     console.log('All tests passed!');
   });
