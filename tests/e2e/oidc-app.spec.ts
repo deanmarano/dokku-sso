@@ -565,17 +565,40 @@ http {
     // Step 5: Wait for redirect back to the app
     console.log('Step 2.6: Waiting for redirect back to app...');
 
-    // Authelia may show a consent screen or redirect directly
-    // Wait for either consent or the final redirect
-    try {
-      // Check if there's a consent button to click
-      const consentButton = page.locator('button:has-text("Accept"), button:has-text("Authorize"), button:has-text("Allow")');
-      if (await consentButton.isVisible({ timeout: 5000 })) {
-        console.log('Found consent screen, clicking accept...');
-        await consentButton.click();
+    // After login, Authelia may show a consent screen.
+    // With consent_mode: implicit, consent is auto-granted.
+    // Wait a moment for any processing, then take screenshot for debugging.
+    await page.waitForTimeout(2000);
+    const currentUrl = page.url();
+    console.log(`Current URL after login: ${currentUrl}`);
+    await page.screenshot({ path: 'test-results/after-login.png' }).catch(() => {});
+
+    // If still on Authelia (consent screen), try to click accept/consent
+    if (currentUrl.includes(AUTH_DOMAIN)) {
+      console.log('Still on Authelia - checking for consent screen...');
+      const pageText = await page.locator('body').textContent();
+      console.log('Page text:', pageText?.substring(0, 300));
+
+      // Try various consent button selectors
+      const consentSelectors = [
+        'button:has-text("Accept")',
+        'button:has-text("Consent")',
+        'button:has-text("Authorize")',
+        'button:has-text("Allow")',
+        'button[type="submit"]',
+      ];
+      for (const selector of consentSelectors) {
+        try {
+          const btn = page.locator(selector).first();
+          if (await btn.isVisible({ timeout: 2000 })) {
+            console.log(`Found consent button: ${selector}`);
+            await btn.click();
+            break;
+          }
+        } catch {
+          // Try next selector
+        }
       }
-    } catch {
-      // No consent screen, that's fine
     }
 
     // Wait for redirect back to oauth2-proxy (our app)

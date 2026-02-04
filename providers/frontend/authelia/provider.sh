@@ -301,6 +301,7 @@ generate_oidc_clients_yaml() {
         client_secret: '$HASHED_SECRET'
         public: false
         authorization_policy: one_factor
+        consent_mode: implicit
         redirect_uris:
           - $REDIRECT_URI
         scopes:
