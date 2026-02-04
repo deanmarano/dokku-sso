@@ -316,8 +316,8 @@ test.describe('OIDC Application Browser Flow', () => {
       execSync(`docker rm -f ${OAUTH2_PROXY_CONTAINER}`, { encoding: 'utf-8' });
     } catch {}
 
-    // Generate a cookie secret (minimum 16 bytes for oauth2-proxy)
-    const cookieSecret = 'oauth2proxysecret123456789012';
+    // Cookie secret must be exactly 16, 24, or 32 bytes for AES cipher
+    const cookieSecret = '01234567890123456789012345678901'; // exactly 32 bytes
 
     // oauth2-proxy configuration for Authelia OIDC
     // Use localhost URL for issuer since that's where the browser will access it
