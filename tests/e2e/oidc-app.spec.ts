@@ -324,14 +324,15 @@ test.describe('OIDC Application Browser Flow', () => {
     const cookieSecret = '01234567890123456789012345678901'; // exactly 32 bytes
 
     // oauth2-proxy configuration for Authelia OIDC
-    // Use localhost URL for issuer since that's where the browser will access it
+    // Use internal IP for OIDC discovery (container-to-container)
+    // Browser redirects will use the configured login-url which points to localhost
     execSync(
       `docker run -d --name ${OAUTH2_PROXY_CONTAINER} ` +
         `--network ${AUTH_NETWORK} ` +
         `-p ${OAUTH2_PROXY_HOST_PORT}:4180 ` +
         `-e OAUTH2_PROXY_HTTP_ADDRESS=0.0.0.0:4180 ` +
         `-e OAUTH2_PROXY_PROVIDER=oidc ` +
-        `-e OAUTH2_PROXY_OIDC_ISSUER_URL=http://localhost:${AUTHELIA_HOST_PORT} ` +
+        `-e OAUTH2_PROXY_OIDC_ISSUER_URL=http://${AUTHELIA_INTERNAL_IP}:9091 ` +
         `-e OAUTH2_PROXY_CLIENT_ID=${OIDC_CLIENT_ID} ` +
         `-e OAUTH2_PROXY_CLIENT_SECRET=${OIDC_CLIENT_SECRET} ` +
         `-e OAUTH2_PROXY_REDIRECT_URL=http://localhost:${OAUTH2_PROXY_HOST_PORT}/oauth2/callback ` +
@@ -345,7 +346,10 @@ test.describe('OIDC Application Browser Flow', () => {
         `-e OAUTH2_PROXY_INSECURE_OIDC_SKIP_ISSUER_VERIFICATION=true ` +
         `-e OAUTH2_PROXY_SCOPE="openid profile email" ` +
         `-e OAUTH2_PROXY_CODE_CHALLENGE_METHOD=S256 ` +
-        `--add-host=localhost:host-gateway ` +
+        `-e OAUTH2_PROXY_LOGIN_URL=http://localhost:${AUTHELIA_HOST_PORT}/api/oidc/authorize ` +
+        `-e OAUTH2_PROXY_REDEEM_URL=http://${AUTHELIA_INTERNAL_IP}:9091/api/oidc/token ` +
+        `-e OAUTH2_PROXY_OIDC_JWKS_URL=http://${AUTHELIA_INTERNAL_IP}:9091/jwks.json ` +
+        `-e OAUTH2_PROXY_PROFILE_URL=http://${AUTHELIA_INTERNAL_IP}:9091/api/oidc/userinfo ` +
         `quay.io/oauth2-proxy/oauth2-proxy:latest`,
       { encoding: 'utf-8' }
     );
