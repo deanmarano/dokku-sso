@@ -376,35 +376,29 @@ test.describe('Nextcloud LDAP Integration', () => {
     expect(userSearch.toLowerCase()).toContain(TEST_USER.toLowerCase());
 
     // Test 5: LLDAP authentication should work
+    // Note: Using docker exec + curl because Node.js can't reach Docker internal IPs
     console.log('Test: LLDAP authentication should work');
-    console.log(`LLDAP URL: ${LLDAP_URL}`);
-    try {
-      const authResponse = await fetch(`${LLDAP_URL}/auth/simple/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: TEST_USER, password: TEST_PASSWORD }),
-      });
-      console.log(`Auth response status: ${authResponse.status}`);
-      expect(authResponse.ok).toBe(true);
-    } catch (e: any) {
-      console.error('Auth fetch error:', e.message);
-      throw e;
-    }
+    const authResult = execSync(
+      `docker exec ${NEXTCLOUD_CONTAINER} curl -s -o /dev/null -w "%{http_code}" ` +
+        `-X POST -H "Content-Type: application/json" ` +
+        `-d '{"username":"${TEST_USER}","password":"${TEST_PASSWORD}"}' ` +
+        `"http://${LDAP_CONTAINER_IP}:17170/auth/simple/login"`,
+      { encoding: 'utf-8' }
+    ).trim();
+    console.log(`Auth response status: ${authResult}`);
+    expect(authResult).toBe('200');
 
     // Test 6: Wrong password should fail
     console.log('Test: Wrong password should fail');
-    try {
-      const failResponse = await fetch(`${LLDAP_URL}/auth/simple/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: TEST_USER, password: 'wrongpassword' }),
-      });
-      console.log(`Wrong password response status: ${failResponse.status}`);
-      expect(failResponse.ok).toBe(false);
-    } catch (e: any) {
-      console.error('Wrong password fetch error:', e.message);
-      throw e;
-    }
+    const failResult = execSync(
+      `docker exec ${NEXTCLOUD_CONTAINER} curl -s -o /dev/null -w "%{http_code}" ` +
+        `-X POST -H "Content-Type: application/json" ` +
+        `-d '{"username":"${TEST_USER}","password":"wrongpassword"}' ` +
+        `"http://${LDAP_CONTAINER_IP}:17170/auth/simple/login"`,
+      { encoding: 'utf-8' }
+    ).trim();
+    console.log(`Wrong password response status: ${failResult}`);
+    expect(failResult).not.toBe('200');
 
     console.log('All tests passed!');
   });
