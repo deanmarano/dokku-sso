@@ -33,8 +33,9 @@ const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
 const AUTH_DOMAIN = 'auth.test.local';
 const APP_DOMAIN = 'app.test.local';
 
-// HTTPS ports
-const AUTHELIA_HTTPS_PORT = 9443;
+// HTTPS ports - use 443 for Authelia so the OIDC issuer URL matches
+// (Authelia generates issuer as https://DOMAIN without port, so we need default 443)
+const AUTHELIA_HTTPS_PORT = 443;
 const OAUTH2_PROXY_HTTPS_PORT = 4443;
 
 // Helper to run dokku commands
@@ -342,7 +343,7 @@ http {
 
     # Authelia HTTPS
     server {
-        listen 9443 ssl;
+        listen 443 ssl;
         server_name ${AUTH_DOMAIN};
         ssl_certificate /etc/nginx/certs/server.crt;
         ssl_certificate_key /etc/nginx/certs/server.key;
@@ -376,7 +377,7 @@ http {
     execSync(
       `docker run -d --name ${NGINX_CONTAINER} ` +
         `--network ${AUTH_NETWORK} ` +
-        `-p ${AUTHELIA_HTTPS_PORT}:9443 ` +
+        `-p ${AUTHELIA_HTTPS_PORT}:443 ` +
         `-p ${OAUTH2_PROXY_HTTPS_PORT}:4443 ` +
         `-v /tmp/nginx.conf:/etc/nginx/nginx.conf:ro ` +
         `-v /tmp/certs:/etc/nginx/certs:ro ` +
@@ -415,13 +416,13 @@ http {
     const cookieSecret = '01234567890123456789012345678901'; // exactly 32 bytes
 
     // oauth2-proxy reaches OIDC discovery via nginx (using --add-host to route
-    // auth.test.local to nginx's container IP on port 9443)
+    // auth.test.local to nginx's container IP on port 443)
     execSync(
       `docker run -d --name ${OAUTH2_PROXY_CONTAINER} ` +
         `--network ${AUTH_NETWORK} ` +
         `-e OAUTH2_PROXY_HTTP_ADDRESS=0.0.0.0:4180 ` +
         `-e OAUTH2_PROXY_PROVIDER=oidc ` +
-        `-e OAUTH2_PROXY_OIDC_ISSUER_URL=https://${AUTH_DOMAIN}:${AUTHELIA_HTTPS_PORT} ` +
+        `-e OAUTH2_PROXY_OIDC_ISSUER_URL=https://${AUTH_DOMAIN} ` +
         `-e OAUTH2_PROXY_CLIENT_ID=${OIDC_CLIENT_ID} ` +
         `-e OAUTH2_PROXY_CLIENT_SECRET=${OIDC_CLIENT_SECRET} ` +
         `-e OAUTH2_PROXY_REDIRECT_URL=https://${APP_DOMAIN}:${OAUTH2_PROXY_HTTPS_PORT}/oauth2/callback ` +
