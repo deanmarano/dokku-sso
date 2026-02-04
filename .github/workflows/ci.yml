@@ -262,3 +262,63 @@ jobs:
           docker ps -a
           echo "=== Auth services ==="
           sudo dokku auth:list 2>/dev/null || true
+
+  e2e-oidc-app:
+    name: E2E - OIDC Application
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Install Dokku
+        run: |
+          wget -NP . https://dokku.com/install/v0.35.15/bootstrap.sh
+          sudo DOKKU_TAG=v0.35.15 bash bootstrap.sh
+          dokku version
+
+      - name: Install plugin
+        run: |
+          sudo mkdir -p /var/lib/dokku/plugins/available/auth
+          sudo cp -r ./* /var/lib/dokku/plugins/available/auth/
+          sudo ln -sf /var/lib/dokku/plugins/available/auth /var/lib/dokku/plugins/enabled/auth
+          sudo mkdir -p /var/lib/dokku/services/auth
+          sudo chown -R dokku:dokku /var/lib/dokku/services/auth
+          sudo dokku plugin:install-dependencies auth || true
+
+      - name: Run OIDC application tests
+        run: npx playwright test --project=oidc-app
+        env:
+          CI: true
+          DOKKU_HOST: local
+          DOKKU_USE_SUDO: 'true'
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-oidc-app
+          path: playwright-report/
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker containers ==="
+          docker ps -a
+          echo "=== Auth services ==="
+          sudo dokku auth:list 2>/dev/null || true
+          echo "=== oauth2-proxy logs ==="
+          docker logs oauth2-proxy-test 2>&1 || true
+          echo "=== Authelia logs ==="
+          sudo dokku auth:frontend:logs oidc-app-frontend-test -n 100 2>/dev/null || true

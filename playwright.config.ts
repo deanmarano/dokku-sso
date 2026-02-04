@@ -71,10 +71,18 @@ export default defineConfig({
       timeout: 600000, // 10 minutes
     },
 
-    // OIDC client tests
+    // OIDC client tests (infrastructure)
     {
       name: 'oidc',
       testMatch: ['oidc-client.spec.ts'],
+      use: { ...devices['Desktop Chrome'] },
+      timeout: 600000, // 10 minutes for full OIDC setup
+    },
+
+    // OIDC application tests (full flow with oauth2-proxy)
+    {
+      name: 'oidc-app',
+      testMatch: ['oidc-app.spec.ts'],
       use: { ...devices['Desktop Chrome'] },
       timeout: 600000, // 10 minutes for full OIDC setup
     },
