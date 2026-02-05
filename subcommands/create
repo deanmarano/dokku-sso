@@ -8,12 +8,50 @@ source "$PLUGIN_BASE_PATH/providers/loader.sh"
 # Strip command prefix if dokku passed it
 [[ "${1:-}" == auth:* ]] && shift
 
-SERVICE="$1"
+# Parse arguments
+SERVICE=""
+PROVIDER=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --provider)
+      PROVIDER="$2"
+      shift 2
+      ;;
+    --provider=*)
+      PROVIDER="${1#*=}"
+      shift
+      ;;
+    -*)
+      echo "!     Unknown option: $1" >&2
+      exit 1
+      ;;
+    *)
+      SERVICE="$1"
+      shift
+      ;;
+  esac
+done
 
 if [[ -z "$SERVICE" ]]; then
-  echo "Usage: dokku auth:create <service>" >&2
+  echo "Usage: dokku auth:create <service> [--provider <provider>]" >&2
   echo "" >&2
   echo "Create a new directory service" >&2
+  echo "" >&2
+  echo "Options:" >&2
+  echo "  --provider <provider>  Directory provider to use (default: $DEFAULT_DIRECTORY_PROVIDER)" >&2
+  echo "                         Available: $(list_directory_providers | tr '\n' ' ')" >&2
+  exit 1
+fi
+
+# Use default provider if not specified
+if [[ -z "$PROVIDER" ]]; then
+  PROVIDER="$DEFAULT_DIRECTORY_PROVIDER"
+fi
+
+# Validate provider exists
+if [[ ! -f "$PLUGIN_BASE_PATH/providers/directory/$PROVIDER/provider.sh" ]]; then
+  echo "!     Unknown provider: $PROVIDER" >&2
+  echo "       Available providers: $(list_directory_providers | tr '\n' ' ')" >&2
   exit 1
 fi
 
@@ -31,7 +69,7 @@ if directory_service_exists "$SERVICE"; then
   exit 1
 fi
 
-echo "-----> Creating directory service $SERVICE"
+echo "-----> Creating directory service $SERVICE (provider: $PROVIDER)"
 
 # Ensure auth network exists
 if ! docker network ls -q -f "name=^${AUTH_NETWORK}$" | grep -q .; then
@@ -44,8 +82,8 @@ mkdir -p "$SERVICE_ROOT/config"
 mkdir -p "$SERVICE_ROOT/data"
 mkdir -p "$SERVICE_ROOT/linked-vars"
 
-# Set default provider
-echo "$DEFAULT_DIRECTORY_PROVIDER" > "$SERVICE_ROOT/PROVIDER"
+# Set provider
+echo "$PROVIDER" > "$SERVICE_ROOT/PROVIDER"
 
 # Load provider and create container
 load_directory_provider "$SERVICE"

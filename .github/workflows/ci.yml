@@ -454,3 +454,119 @@ jobs:
           docker logs nginx-grafana-oidc-proxy 2>&1 || true
           echo "=== Authelia logs ==="
           sudo dokku auth:frontend:logs grafana-oidc-fe-test -n 100 2>/dev/null || true
+
+  e2e-glauth:
+    name: E2E - GLAuth Provider
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Install Dokku
+        run: |
+          wget -NP . https://dokku.com/install/v0.35.15/bootstrap.sh
+          sudo DOKKU_TAG=v0.35.15 bash bootstrap.sh
+          dokku version
+
+      - name: Install plugin
+        run: |
+          sudo mkdir -p /var/lib/dokku/plugins/available/auth
+          sudo cp -r ./* /var/lib/dokku/plugins/available/auth/
+          sudo ln -sf /var/lib/dokku/plugins/available/auth /var/lib/dokku/plugins/enabled/auth
+          sudo mkdir -p /var/lib/dokku/services/auth
+          sudo chown -R dokku:dokku /var/lib/dokku/services/auth
+          sudo dokku plugin:install-dependencies auth || true
+
+      - name: Run GLAuth tests
+        run: npx playwright test --project=glauth
+        env:
+          CI: true
+          DOKKU_HOST: local
+          DOKKU_USE_SUDO: 'true'
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-glauth
+          path: test-results/
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker containers ==="
+          docker ps -a
+          echo "=== Auth services ==="
+          sudo dokku auth:list 2>/dev/null || true
+          echo "=== GLAuth logs ==="
+          sudo dokku auth:logs glauth-e2e-test -n 100 2>/dev/null || true
+
+  e2e-openldap:
+    name: E2E - OpenLDAP Provider
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Install Dokku
+        run: |
+          wget -NP . https://dokku.com/install/v0.35.15/bootstrap.sh
+          sudo DOKKU_TAG=v0.35.15 bash bootstrap.sh
+          dokku version
+
+      - name: Install plugin
+        run: |
+          sudo mkdir -p /var/lib/dokku/plugins/available/auth
+          sudo cp -r ./* /var/lib/dokku/plugins/available/auth/
+          sudo ln -sf /var/lib/dokku/plugins/available/auth /var/lib/dokku/plugins/enabled/auth
+          sudo mkdir -p /var/lib/dokku/services/auth
+          sudo chown -R dokku:dokku /var/lib/dokku/services/auth
+          sudo dokku plugin:install-dependencies auth || true
+
+      - name: Run OpenLDAP tests
+        run: npx playwright test --project=openldap
+        env:
+          CI: true
+          DOKKU_HOST: local
+          DOKKU_USE_SUDO: 'true'
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-openldap
+          path: test-results/
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker containers ==="
+          docker ps -a
+          echo "=== Auth services ==="
+          sudo dokku auth:list 2>/dev/null || true
+          echo "=== OpenLDAP logs ==="
+          sudo dokku auth:logs openldap-e2e-test -n 100 2>/dev/null || true

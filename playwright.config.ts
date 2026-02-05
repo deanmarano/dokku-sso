@@ -110,6 +110,22 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       timeout: 600000, // 10 minutes
     },
+
+    // GLAuth directory provider tests
+    {
+      name: 'glauth',
+      testMatch: ['glauth.spec.ts'],
+      use: { ...devices['Desktop Chrome'] },
+      timeout: 300000, // 5 minutes
+    },
+
+    // OpenLDAP directory provider tests
+    {
+      name: 'openldap',
+      testMatch: ['openldap.spec.ts'],
+      use: { ...devices['Desktop Chrome'] },
+      timeout: 300000, // 5 minutes
+    },
   ],
 
   // Output directory for test artifacts
