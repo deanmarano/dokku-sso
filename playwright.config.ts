@@ -94,6 +94,22 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       timeout: 300000, // 5 minutes
     },
+
+    // Grafana LDAP integration tests
+    {
+      name: 'grafana-ldap',
+      testMatch: ['grafana-ldap.spec.ts'],
+      use: { ...devices['Desktop Chrome'] },
+      timeout: 600000, // 10 minutes
+    },
+
+    // Grafana OIDC integration tests
+    {
+      name: 'grafana-oidc',
+      testMatch: ['grafana-oidc.spec.ts'],
+      use: { ...devices['Desktop Chrome'] },
+      timeout: 600000, // 10 minutes
+    },
   ],
 
   // Output directory for test artifacts
