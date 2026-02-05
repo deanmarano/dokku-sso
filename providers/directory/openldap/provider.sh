@@ -71,11 +71,16 @@ provider_create_container() {
     return 1
   fi
 
+  # Wait a moment for OpenLDAP to stabilize
+  sleep 2
+
   # Create organizational units
+  echo "       Creating organizational units..."
   provider_create_ou "$SERVICE" "people"
   provider_create_ou "$SERVICE" "groups"
 
   # Create default users group
+  echo "       Creating default users group..."
   provider_create_group "$SERVICE" "$DEFAULT_USERS_GROUP" || true
 }
 
@@ -92,11 +97,13 @@ provider_create_ou() {
   BASE_DN=$(cat "$CONFIG_DIR/BASE_DN")
   ADMIN_PASSWORD=$(cat "$CONFIG_DIR/ADMIN_PASSWORD")
 
-  docker exec "$CONTAINER_NAME" ldapadd -x -H ldap://localhost -D "cn=admin,$BASE_DN" -w "$ADMIN_PASSWORD" <<EOF 2>/dev/null || true
+  if ! docker exec "$CONTAINER_NAME" ldapadd -x -H ldap://localhost -D "cn=admin,$BASE_DN" -w "$ADMIN_PASSWORD" <<EOF 2>&1; then
 dn: ou=$OU_NAME,$BASE_DN
 objectClass: organizationalUnit
 ou: $OU_NAME
 EOF
+    echo "       Warning: Could not create OU $OU_NAME (may already exist)"
+  fi
 }
 
 # Get the LDAP port
@@ -190,12 +197,14 @@ provider_create_group() {
   BASE_DN=$(cat "$CONFIG_DIR/BASE_DN")
   ADMIN_PASSWORD=$(cat "$CONFIG_DIR/ADMIN_PASSWORD")
 
-  docker exec "$CONTAINER_NAME" ldapadd -x -H ldap://localhost -D "cn=admin,$BASE_DN" -w "$ADMIN_PASSWORD" <<EOF 2>/dev/null || true
+  if ! docker exec "$CONTAINER_NAME" ldapadd -x -H ldap://localhost -D "cn=admin,$BASE_DN" -w "$ADMIN_PASSWORD" <<EOF 2>&1; then
 dn: cn=$GROUP_NAME,ou=groups,$BASE_DN
 objectClass: groupOfNames
 cn: $GROUP_NAME
 member: cn=admin,$BASE_DN
 EOF
+    echo "       Warning: Could not create group $GROUP_NAME (may already exist)"
+  fi
 }
 
 # Get members of a group
