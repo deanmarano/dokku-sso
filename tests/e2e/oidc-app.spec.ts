@@ -39,7 +39,7 @@ const AUTHELIA_HTTPS_PORT = 443;
 const OAUTH2_PROXY_HTTPS_PORT = 4443;
 
 // Helper to run dokku commands
-function dokku(cmd: string): string {
+function dokku(cmd: string, opts?: { quiet?: boolean }): string {
   const dokkuCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
   console.log(`$ ${dokkuCmd}`);
   try {
@@ -47,7 +47,9 @@ function dokku(cmd: string): string {
     console.log(result);
     return result;
   } catch (error: any) {
-    console.error(`Failed:`, error.stderr || error.message);
+    if (!opts?.quiet) {
+      console.error(`Failed:`, error.stderr || error.message);
+    }
     throw error;
   }
 }
@@ -311,7 +313,7 @@ test.describe('OIDC Application Browser Flow', () => {
     // 8. Deploy a simple whoami backend
     console.log('Deploying whoami backend...');
     try {
-      execSync(`docker rm -f ${BACKEND_CONTAINER}`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${BACKEND_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
     } catch {}
 
     execSync(
@@ -331,7 +333,7 @@ test.describe('OIDC Application Browser Flow', () => {
     // (it doesn't exist yet, but will be resolved at request time, not startup).
     console.log('Deploying nginx TLS proxy...');
     try {
-      execSync(`docker rm -f ${NGINX_CONTAINER}`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${NGINX_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
     } catch {}
 
     // Create nginx config using Docker's embedded DNS resolver
@@ -409,7 +411,7 @@ http {
     // 10. Deploy oauth2-proxy (AFTER nginx so OIDC discovery works)
     console.log('Deploying oauth2-proxy...');
     try {
-      execSync(`docker rm -f ${OAUTH2_PROXY_CONTAINER}`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${OAUTH2_PROXY_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
     } catch {}
 
     // Cookie secret must be exactly 16, 24, or 32 bytes for AES cipher
@@ -487,24 +489,20 @@ http {
   test.afterAll(async () => {
     console.log('=== Cleaning up OIDC application test environment ===');
     try {
-      execSync(`docker rm -f ${NGINX_CONTAINER}`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${NGINX_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
     } catch {}
     try {
-      execSync(`docker rm -f ${OAUTH2_PROXY_CONTAINER}`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${OAUTH2_PROXY_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
     } catch {}
     try {
-      execSync(`docker rm -f ${BACKEND_CONTAINER}`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${BACKEND_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
     } catch {}
     try {
-      dokku(`auth:frontend:destroy ${FRONTEND_SERVICE} -f`);
-    } catch (e) {
-      console.log('Failed to destroy frontend:', e);
-    }
+      dokku(`auth:frontend:destroy ${FRONTEND_SERVICE} -f`, { quiet: true });
+    } catch {}
     try {
-      dokku(`auth:destroy ${DIRECTORY_SERVICE} -f`);
-    } catch (e) {
-      console.log('Failed to destroy directory:', e);
-    }
+      dokku(`auth:destroy ${DIRECTORY_SERVICE} -f`, { quiet: true });
+    } catch {}
   });
 
   test('OIDC browser login flow works end-to-end', async ({ page }) => {

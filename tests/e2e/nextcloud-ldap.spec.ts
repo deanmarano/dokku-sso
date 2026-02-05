@@ -21,7 +21,7 @@ const TEST_EMAIL = 'ncuser@test.local';
 const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
 
 // Helper to run dokku commands
-function dokku(cmd: string): string {
+function dokku(cmd: string, opts?: { quiet?: boolean }): string {
   const dokkuCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
   console.log(`$ ${dokkuCmd}`);
   try {
@@ -29,7 +29,9 @@ function dokku(cmd: string): string {
     console.log(result);
     return result;
   } catch (error: any) {
-    console.error(`Failed:`, error.stderr || error.message);
+    if (!opts?.quiet) {
+      console.error(`Failed:`, error.stderr || error.message);
+    }
     throw error;
   }
 }
@@ -227,7 +229,7 @@ test.describe('Nextcloud LDAP Integration', () => {
 
     // Remove existing container if present
     try {
-      execSync(`docker rm -f ${NEXTCLOUD_CONTAINER}`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${NEXTCLOUD_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
     } catch {}
 
     // Run Nextcloud with SQLite for simplicity (no port mapping needed - we use OCC)
@@ -269,7 +271,7 @@ test.describe('Nextcloud LDAP Integration', () => {
     ).trim().split(' ')[0];
 
     try {
-      execSync(`docker network connect ${ncNetwork} ${NEXTCLOUD_CONTAINER}`, {
+      execSync(`docker network connect ${ncNetwork} ${NEXTCLOUD_CONTAINER} 2>/dev/null`, {
         encoding: 'utf-8',
       });
       console.log(`Connected Nextcloud to network: ${ncNetwork}`);
@@ -317,10 +319,10 @@ test.describe('Nextcloud LDAP Integration', () => {
   test.afterAll(async () => {
     console.log('=== Cleaning up Nextcloud LDAP test ===');
     try {
-      execSync(`docker rm -f ${NEXTCLOUD_CONTAINER}`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${NEXTCLOUD_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
     } catch {}
     try {
-      dokku(`auth:destroy ${SERVICE_NAME} -f`);
+      dokku(`auth:destroy ${SERVICE_NAME} -f`, { quiet: true });
     } catch {}
   });
 
