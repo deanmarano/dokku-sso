@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { execSync } from 'child_process';
+import { dokku } from './helpers';
 
 /**
  * Full stack E2E tests
@@ -12,18 +12,6 @@ const DOKKU_HOST = process.env.DOKKU_HOST || 'localhost';
 const SERVICE_NAME = `e2e-test-${Date.now()}`;
 const FRONTEND_NAME = `e2e-frontend-${Date.now()}`;
 const TEST_DOMAIN = process.env.TEST_DOMAIN || 'test.local';
-
-// Helper to run dokku commands
-function dokku(cmd: string, opts?: { quiet?: boolean }): string {
-  try {
-    return execSync(`dokku ${cmd}`, { encoding: 'utf8', timeout: 120000 });
-  } catch (error: any) {
-    if (!opts?.quiet) {
-      console.error(`dokku ${cmd} failed:`, error.stderr);
-    }
-    throw error;
-  }
-}
 
 // Helper to wait for service to be ready
 async function waitForService(url: string, timeout = 30000): Promise<boolean> {

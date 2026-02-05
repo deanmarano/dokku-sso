@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
+import { getContainerIp } from './helpers';
 
 /**
  * E2E tests for LLDAP web UI login
@@ -10,19 +11,6 @@ import { execSync } from 'child_process';
  */
 
 const SERVICE_NAME = process.env.E2E_SERVICE_NAME || 'e2e-shared';
-
-// Helper to get container IP
-function getContainerIp(serviceName: string): string {
-  const containerName = `dokku.auth.directory.${serviceName}`;
-  try {
-    return execSync(
-      `docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${containerName}`,
-      { encoding: 'utf-8' }
-    ).trim();
-  } catch {
-    throw new Error(`Could not get IP for container ${containerName}`);
-  }
-}
 
 // Helper to get admin password
 function getAdminPassword(serviceName: string): string {
@@ -41,7 +29,7 @@ let ADMIN_PASSWORD: string;
 const ADMIN_USER = 'admin';
 
 test.beforeAll(() => {
-  const containerIp = getContainerIp(SERVICE_NAME);
+  const containerIp = getContainerIp(`dokku.auth.directory.${SERVICE_NAME}`);
   LLDAP_URL = `http://${containerIp}:17170`;
   ADMIN_PASSWORD = getAdminPassword(SERVICE_NAME);
   console.log(`LLDAP URL: ${LLDAP_URL}`);

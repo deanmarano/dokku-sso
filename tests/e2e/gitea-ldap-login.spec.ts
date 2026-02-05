@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
+import { USE_SUDO, dokku, getContainerIp, getLdapCredentials } from './helpers';
 
 /**
  * LDAP Authentication E2E Test
@@ -17,47 +18,8 @@ const SERVICE_NAME = 'ldap-auth-test';
 const TEST_USER = 'testuser';
 const TEST_PASSWORD = 'TestPass123!';
 const TEST_EMAIL = 'testuser@test.local';
-const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
 
-// Helper to run dokku commands
-function dokku(cmd: string, opts?: { quiet?: boolean }): string {
-  const dokkuCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
-  console.log(`$ ${dokkuCmd}`);
-  try {
-    const result = execSync(dokkuCmd, { encoding: 'utf8', timeout: 300000 });
-    console.log(result);
-    return result;
-  } catch (error: any) {
-    if (!opts?.quiet) {
-      console.error(`Failed:`, error.stderr || error.message);
-    }
-    throw error;
-  }
-}
-
-// Get container IP
-function getContainerIp(containerName: string): string {
-  const ips = execSync(
-    `docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' ${containerName}`,
-    { encoding: 'utf-8' }
-  ).trim();
-  return ips.split(' ')[0]; // Return first IP
-}
-
-// Get LLDAP credentials
-function getLdapCredentials(): Record<string, string> {
-  const output = dokku(`auth:credentials ${SERVICE_NAME}`);
-  const creds: Record<string, string> = {};
-  for (const line of output.split('\n')) {
-    const match = line.match(/^(\w+)=(.+)$/);
-    if (match) {
-      creds[match[1]] = match[2];
-    }
-  }
-  return creds;
-}
-
-// Create user in LLDAP via GraphQL API
+// Create user in LLDAP via GraphQL API (fetch-based variant)
 async function createLdapUser(
   lldapUrl: string,
   adminPassword: string,
@@ -218,7 +180,7 @@ test.describe('LDAP Authentication', () => {
   });
 
   test('should get LDAP credentials', async () => {
-    const creds = getLdapCredentials();
+    const creds = getLdapCredentials(SERVICE_NAME);
     expect(creds.ADMIN_PASSWORD).toBeDefined();
     expect(creds.BASE_DN).toBeDefined();
     expect(creds.BIND_DN).toBeDefined();
@@ -226,7 +188,7 @@ test.describe('LDAP Authentication', () => {
   });
 
   test('admin should be able to authenticate', async () => {
-    const creds = getLdapCredentials();
+    const creds = getLdapCredentials(SERVICE_NAME);
     const canAuth = await testLdapAuthentication(
       LLDAP_URL,
       'admin',
@@ -236,7 +198,7 @@ test.describe('LDAP Authentication', () => {
   });
 
   test('should create test user and authenticate', async () => {
-    const creds = getLdapCredentials();
+    const creds = getLdapCredentials(SERVICE_NAME);
 
     // Create the test user
     await createLdapUser(

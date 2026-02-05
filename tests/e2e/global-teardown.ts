@@ -1,5 +1,5 @@
-import { execSync } from 'child_process';
 import { cleanupTestUsers } from './fixtures/lldap-users';
+import { dokku } from './helpers';
 
 /**
  * Global teardown for E2E tests
@@ -10,20 +10,6 @@ import { cleanupTestUsers } from './fixtures/lldap-users';
 
 const SHARED_SERVICE = process.env.E2E_SERVICE_NAME || 'e2e-shared';
 const CLEANUP = process.env.E2E_CLEANUP === 'true';
-const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
-
-function dokku(cmd: string, opts?: { quiet?: boolean }): string {
-  const dokkuCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
-  console.log(`[teardown] ${dokkuCmd}`);
-  try {
-    return execSync(dokkuCmd, { encoding: 'utf8', timeout: 120000 });
-  } catch (error: any) {
-    if (!opts?.quiet) {
-      console.error(`Command failed: ${error.message}`);
-    }
-    return '';
-  }
-}
 
 async function globalTeardown() {
   console.log('=== E2E Global Teardown ===');
@@ -43,7 +29,12 @@ async function globalTeardown() {
 
   // Destroy shared service
   console.log('Destroying shared service...');
-  dokku(`auth:destroy ${SHARED_SERVICE} -f`, { quiet: true });
+  dokku(`auth:destroy ${SHARED_SERVICE} -f`, {
+    quiet: true,
+    prefix: '[teardown] ',
+    timeout: 120000,
+    swallowErrors: true,
+  });
 
   console.log('=== Teardown Complete ===');
 }

@@ -1,6 +1,15 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
+import {
+  USE_SUDO,
+  dokku,
+  getContainerIp,
+  getLdapCredentials,
+  createLdapUser,
+  waitForHealthy,
+  waitForHttps,
+} from './helpers';
 
 /**
  * OIDC Application E2E Test - Full Browser Flow
@@ -27,7 +36,6 @@ const TEST_EMAIL = 'oidcuser@test.local';
 const OAUTH2_PROXY_CONTAINER = 'oauth2-proxy-test';
 const BACKEND_CONTAINER = 'whoami-test';
 const NGINX_CONTAINER = 'nginx-tls-proxy';
-const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
 
 // Domain names (must be in /etc/hosts pointing to 127.0.0.1)
 const AUTH_DOMAIN = 'auth.test.local';
@@ -37,147 +45,6 @@ const APP_DOMAIN = 'app.test.local';
 // (Authelia generates issuer as https://DOMAIN without port, so we need default 443)
 const AUTHELIA_HTTPS_PORT = 443;
 const OAUTH2_PROXY_HTTPS_PORT = 4443;
-
-// Helper to run dokku commands
-function dokku(cmd: string, opts?: { quiet?: boolean }): string {
-  const dokkuCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
-  console.log(`$ ${dokkuCmd}`);
-  try {
-    const result = execSync(dokkuCmd, { encoding: 'utf8', timeout: 300000 });
-    console.log(result);
-    return result;
-  } catch (error: any) {
-    if (!opts?.quiet) {
-      console.error(`Failed:`, error.stderr || error.message);
-    }
-    throw error;
-  }
-}
-
-// Helper to get container IP
-function getContainerIp(containerName: string): string {
-  try {
-    const ips = execSync(
-      `docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' ${containerName}`,
-      { encoding: 'utf-8' }
-    ).trim();
-    return ips.split(' ')[0];
-  } catch {
-    throw new Error(`Could not get IP for container ${containerName}`);
-  }
-}
-
-// Get LLDAP credentials
-function getLdapCredentials(): Record<string, string> {
-  const output = dokku(`auth:credentials ${DIRECTORY_SERVICE}`);
-  const creds: Record<string, string> = {};
-  for (const line of output.split('\n')) {
-    const match = line.match(/^(\w+)=(.+)$/);
-    if (match) {
-      creds[match[1]] = match[2];
-    }
-  }
-  return creds;
-}
-
-// Create user in LLDAP via GraphQL API (using docker exec curl)
-function createLdapUser(
-  lldapContainer: string,
-  adminPassword: string,
-  userId: string,
-  email: string,
-  password: string
-): void {
-  // Get auth token
-  console.log('Getting LLDAP auth token...');
-  const tokenResult = execSync(
-    `docker exec ${lldapContainer} curl -s -X POST ` +
-      `-H "Content-Type: application/json" ` +
-      `-d '{"username":"admin","password":"${adminPassword}"}' ` +
-      `"http://localhost:17170/auth/simple/login"`,
-    { encoding: 'utf-8' }
-  );
-  const { token } = JSON.parse(tokenResult);
-  console.log('Got auth token');
-
-  // Create user via GraphQL
-  console.log(`Creating user ${userId}...`);
-  const createQuery = `{"query":"mutation CreateUser($user: CreateUserInput!) { createUser(user: $user) { id email } }","variables":{"user":{"id":"${userId}","email":"${email}","displayName":"${userId}","firstName":"Test","lastName":"User"}}}`;
-
-  const createResult = execSync(
-    `docker exec ${lldapContainer} curl -s -X POST ` +
-      `-H "Content-Type: application/json" ` +
-      `-H "Authorization: Bearer ${token}" ` +
-      `-d '${createQuery}' ` +
-      `"http://localhost:17170/api/graphql"`,
-    { encoding: 'utf-8' }
-  );
-
-  const createJson = JSON.parse(createResult);
-  if (
-    createJson.errors &&
-    !createJson.errors[0]?.message?.includes('already exists')
-  ) {
-    console.log('Create user result:', createResult);
-  }
-
-  // Set password using lldap_set_password tool
-  console.log(`Setting password for ${userId}...`);
-  try {
-    execSync(
-      `docker exec ${lldapContainer} /app/lldap_set_password --base-url http://localhost:17170 ` +
-        `--admin-username admin --admin-password "${adminPassword}" ` +
-        `--username "${userId}" --password "${password}"`,
-      { encoding: 'utf-8', stdio: 'pipe' }
-    );
-    console.log(`Password set for user: ${userId}`);
-  } catch (e: any) {
-    console.error('lldap_set_password error:', e.stderr || e.message);
-    throw e;
-  }
-
-  console.log(`Created LDAP user: ${userId}`);
-}
-
-// Wait for service to be healthy
-async function waitForHealthy(
-  service: string,
-  type: 'directory' | 'frontend',
-  maxWait = 60000
-): Promise<boolean> {
-  const start = Date.now();
-  const cmd =
-    type === 'directory' ? `auth:status ${service}` : `auth:frontend:status ${service}`;
-
-  while (Date.now() - start < maxWait) {
-    try {
-      const statusCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
-      const status = execSync(statusCmd, { encoding: 'utf-8' });
-      if (status.includes('healthy') || status.includes('running')) {
-        return true;
-      }
-    } catch {}
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  return false;
-}
-
-// Wait for HTTPS endpoint to be ready
-async function waitForHttps(url: string, maxWait = 60000): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < maxWait) {
-    try {
-      // Use curl with -k to ignore self-signed cert
-      execSync(`curl -sk -o /dev/null -w "%{http_code}" "${url}"`, {
-        encoding: 'utf-8',
-        timeout: 5000,
-      });
-      return true;
-    } catch {}
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  return false;
-}
 
 // Generate self-signed certificates
 function generateCerts(): void {
@@ -221,7 +88,7 @@ test.describe('OIDC Application Browser Flow', () => {
     }
 
     // Get admin password
-    const creds = getLdapCredentials();
+    const creds = getLdapCredentials(DIRECTORY_SERVICE);
     ADMIN_PASSWORD = creds.ADMIN_PASSWORD;
 
     // Determine the auth network

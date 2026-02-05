@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+APP="$1"
+
+if [[ -z "$APP" ]]; then
+  echo "Usage: dokku auth:protect <app>" >&2
+  echo "" >&2
+  echo "Add SSO protection to an app (auto-detects frontend service)." >&2
+  echo "If multiple frontend services exist, use auth:frontend:protect <service> <app> instead." >&2
+  exit 1
+fi
+
+# Check if app exists
+if ! dokku apps:exists "$APP" 2>/dev/null; then
+  echo "!     App $APP does not exist" >&2
+  exit 1
+fi
+
+# Auto-detect frontend service
+FRONTEND_DIR="$PLUGIN_DATA_ROOT/frontend"
+SERVICES=()
+
+if [[ -d "$FRONTEND_DIR" ]]; then
+  for dir in "$FRONTEND_DIR"/*/; do
+    [[ -d "$dir" ]] || continue
+    SERVICES+=("$(basename "$dir")")
+  done
+fi
+
+if [[ ${#SERVICES[@]} -eq 0 ]]; then
+  echo "!     No frontend service found" >&2
+  echo "       Create one with: dokku auth:frontend:create <name>" >&2
+  exit 1
+fi
+
+if [[ ${#SERVICES[@]} -gt 1 ]]; then
+  echo "!     Multiple frontend services found: ${SERVICES[*]}" >&2
+  echo "       Use: dokku auth:frontend:protect <service> <app>" >&2
+  exit 1
+fi
+
+SERVICE="${SERVICES[0]}"
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
+
+# Check if already protected
+if [[ -f "$SERVICE_ROOT/PROTECTED" ]] && grep -q "^${APP}$" "$SERVICE_ROOT/PROTECTED"; then
+  echo "       App $APP is already protected by $SERVICE"
+  exit 0
+fi
+
+echo "-----> Protecting $APP with $SERVICE"
+
+load_frontend_provider "$SERVICE"
+provider_protect_app "$SERVICE" "$APP"
+
+echo "-----> App $APP is now protected"
+echo ""
+echo "       Note: You may need to configure your nginx proxy to use Authelia"
+echo "       for forward authentication. See documentation for details."

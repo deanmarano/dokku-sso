@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
+import {
+  USE_SUDO,
+  dokku,
+  getContainerIp,
+  getLdapCredentials,
+} from './helpers';
 
 /**
  * App LDAP Integration E2E Tests
@@ -14,45 +20,6 @@ import { execSync } from 'child_process';
 
 const SERVICE_NAME = 'app-ldap-test';
 const TEST_APP = 'ldap-app-test';
-const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
-
-// Helper to run dokku commands
-function dokku(cmd: string, opts?: { quiet?: boolean }): string {
-  const dokkuCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
-  console.log(`$ ${dokkuCmd}`);
-  try {
-    const result = execSync(dokkuCmd, { encoding: 'utf8', timeout: 300000 });
-    console.log(result);
-    return result;
-  } catch (error: any) {
-    if (!opts?.quiet) {
-      console.error(`Failed:`, error.stderr || error.message);
-    }
-    throw error;
-  }
-}
-
-// Helper to get LLDAP container IP
-function getLdapContainerIp(serviceName: string): string {
-  const containerName = `dokku.auth.directory.${serviceName}`;
-  return execSync(
-    `docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${containerName}`,
-    { encoding: 'utf-8' }
-  ).trim();
-}
-
-// Get LLDAP credentials
-function getLdapCredentials(): Record<string, string> {
-  const output = dokku(`auth:credentials ${SERVICE_NAME}`);
-  const creds: Record<string, string> = {};
-  for (const line of output.split('\n')) {
-    const match = line.match(/^(\w+)=(.+)$/);
-    if (match) {
-      creds[match[1]] = match[2];
-    }
-  }
-  return creds;
-}
 
 let LLDAP_URL: string;
 let LDAP_CONTAINER_IP: string;
@@ -89,7 +56,7 @@ test.describe('App LDAP Integration', () => {
       throw new Error('LLDAP service not healthy');
     }
 
-    LDAP_CONTAINER_IP = getLdapContainerIp(SERVICE_NAME);
+    LDAP_CONTAINER_IP = getContainerIp(`dokku.auth.directory.${SERVICE_NAME}`);
     LLDAP_URL = `http://${LDAP_CONTAINER_IP}:17170`;
     console.log(`LLDAP container IP: ${LDAP_CONTAINER_IP}`);
     console.log(`LLDAP URL: ${LLDAP_URL}`);
@@ -168,7 +135,7 @@ test.describe('App LDAP Integration', () => {
 
   test('should create app-specific user group', async () => {
     // Check credentials include group info or check via LDAP
-    const creds = getLdapCredentials();
+    const creds = getLdapCredentials(SERVICE_NAME);
     expect(creds.BASE_DN || creds.LDAP_BASE_DN).toBeTruthy();
 
     // The linking process creates a group named <app>_users
@@ -188,7 +155,7 @@ test.describe('App LDAP Integration', () => {
   });
 
   test('should login to LLDAP admin UI with credentials', async ({ page }) => {
-    const creds = getLdapCredentials();
+    const creds = getLdapCredentials(SERVICE_NAME);
     const adminPassword = creds.ADMIN_PASSWORD;
 
     await page.goto(LLDAP_URL);

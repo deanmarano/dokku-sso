@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
+import {
+  USE_SUDO,
+  dokku,
+  getContainerIp,
+  getLdapCredentials,
+  waitForHealthy,
+} from './helpers';
 
 /**
  * OIDC Client E2E Tests
@@ -17,66 +24,6 @@ const FRONTEND_SERVICE = 'oidc-frontend-test';
 const OIDC_CLIENT_ID = 'test-oidc-app';
 const OIDC_CLIENT_SECRET = 'test-client-secret-12345678901234567890';
 const OIDC_REDIRECT_URI = 'https://test-app.local/oauth2/callback';
-const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
-
-// Helper to run dokku commands
-function dokku(cmd: string, opts?: { quiet?: boolean }): string {
-  const dokkuCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
-  console.log(`$ ${dokkuCmd}`);
-  try {
-    const result = execSync(dokkuCmd, { encoding: 'utf8', timeout: 300000 });
-    console.log(result);
-    return result;
-  } catch (error: any) {
-    if (!opts?.quiet) {
-      console.error(`Failed:`, error.stderr || error.message);
-    }
-    throw error;
-  }
-}
-
-// Helper to get container IP
-function getContainerIp(containerName: string): string {
-  try {
-    return execSync(
-      `docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${containerName}`,
-      { encoding: 'utf-8' }
-    ).trim();
-  } catch {
-    throw new Error(`Could not get IP for container ${containerName}`);
-  }
-}
-
-// Get LLDAP credentials
-function getLdapCredentials(): Record<string, string> {
-  const output = dokku(`auth:credentials ${DIRECTORY_SERVICE}`);
-  const creds: Record<string, string> = {};
-  for (const line of output.split('\n')) {
-    const match = line.match(/^(\w+)=(.+)$/);
-    if (match) {
-      creds[match[1]] = match[2];
-    }
-  }
-  return creds;
-}
-
-// Wait for service to be healthy
-async function waitForHealthy(service: string, type: 'directory' | 'frontend', maxWait = 60000): Promise<boolean> {
-  const start = Date.now();
-  const cmd = type === 'directory' ? `auth:status ${service}` : `auth:frontend:status ${service}`;
-
-  while (Date.now() - start < maxWait) {
-    try {
-      const statusCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
-      const status = execSync(statusCmd, { encoding: 'utf-8' });
-      if (status.includes('healthy') || status.includes('running')) {
-        return true;
-      }
-    } catch {}
-    await new Promise(r => setTimeout(r, 2000));
-  }
-  return false;
-}
 
 let AUTHELIA_URL: string;
 let LLDAP_URL: string;
@@ -107,7 +54,7 @@ test.describe('OIDC Client Integration', () => {
     console.log(`LLDAP URL: ${LLDAP_URL}`);
 
     // Get admin password
-    const creds = getLdapCredentials();
+    const creds = getLdapCredentials(DIRECTORY_SERVICE);
     ADMIN_PASSWORD = creds.ADMIN_PASSWORD;
 
     // 2. Create Authelia frontend service

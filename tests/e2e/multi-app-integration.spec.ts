@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
+import { USE_SUDO, dokku, getLdapCredentials } from './helpers';
 
 /**
  * Multiple App LDAP Integration E2E Tests
@@ -10,36 +11,6 @@ import { execSync } from 'child_process';
 
 const SERVICE_NAME = 'multi-app-ldap-test';
 const TEST_APPS = ['app-alpha', 'app-beta'];
-const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
-
-// Helper to run dokku commands
-function dokku(cmd: string, opts?: { quiet?: boolean }): string {
-  const dokkuCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
-  console.log(`$ ${dokkuCmd}`);
-  try {
-    const result = execSync(dokkuCmd, { encoding: 'utf8', timeout: 300000 });
-    console.log(result);
-    return result;
-  } catch (error: any) {
-    if (!opts?.quiet) {
-      console.error(`Failed:`, error.stderr || error.message);
-    }
-    throw error;
-  }
-}
-
-// Get LLDAP credentials
-function getLdapCredentials(): Record<string, string> {
-  const output = dokku(`auth:credentials ${SERVICE_NAME}`);
-  const creds: Record<string, string> = {};
-  for (const line of output.split('\n')) {
-    const match = line.match(/^(\w+)=(.+)$/);
-    if (match) {
-      creds[match[1]] = match[2];
-    }
-  }
-  return creds;
-}
 
 test.describe('Multiple App LDAP Integration', () => {
   test.beforeAll(async () => {
@@ -133,7 +104,7 @@ test.describe('Multiple App LDAP Integration', () => {
   });
 
   test('each app should have its own user group', async () => {
-    const creds = getLdapCredentials();
+    const creds = getLdapCredentials(SERVICE_NAME);
     const baseDn = creds.BASE_DN || creds.LDAP_BASE_DN;
 
     // Groups are created when linking - verify via info command

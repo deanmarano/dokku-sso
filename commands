@@ -36,6 +36,9 @@ dokku auth directory commands:
     auth:sync <service>                          sync default group to app groups
     auth:credentials <service>                   show LDAP bind credentials
 
+    auth:protect <app>                           add SSO protection (auto-detect frontend)
+    auth:unprotect <app>                         remove SSO protection
+
     auth:provider:set <service> <provider>       set directory provider
     auth:provider:config <service> KEY=value     configure provider settings
     auth:provider:apply <service>                apply configuration changes

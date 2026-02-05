@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
+import {
+  USE_SUDO,
+  dokku,
+  getContainerIp,
+  getLdapCredentials,
+  createLdapUser,
+} from './helpers';
 
 /**
  * Nextcloud LDAP Integration E2E Test
@@ -18,102 +25,6 @@ const SERVICE_NAME = 'nextcloud-ldap-test';
 const TEST_USER = 'ncuser';
 const TEST_PASSWORD = 'NcPass123!';
 const TEST_EMAIL = 'ncuser@test.local';
-const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
-
-// Helper to run dokku commands
-function dokku(cmd: string, opts?: { quiet?: boolean }): string {
-  const dokkuCmd = USE_SUDO ? `sudo dokku ${cmd}` : `dokku ${cmd}`;
-  console.log(`$ ${dokkuCmd}`);
-  try {
-    const result = execSync(dokkuCmd, { encoding: 'utf8', timeout: 300000 });
-    console.log(result);
-    return result;
-  } catch (error: any) {
-    if (!opts?.quiet) {
-      console.error(`Failed:`, error.stderr || error.message);
-    }
-    throw error;
-  }
-}
-
-// Get container IP
-function getContainerIp(containerName: string): string {
-  const ips = execSync(
-    `docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' ${containerName}`,
-    { encoding: 'utf-8' }
-  ).trim();
-  return ips.split(' ')[0];
-}
-
-// Get LLDAP credentials
-function getLdapCredentials(): Record<string, string> {
-  const output = dokku(`auth:credentials ${SERVICE_NAME}`);
-  const creds: Record<string, string> = {};
-  for (const line of output.split('\n')) {
-    const match = line.match(/^(\w+)=(.+)$/);
-    if (match) {
-      creds[match[1]] = match[2];
-    }
-  }
-  return creds;
-}
-
-// Create user in LLDAP via GraphQL and set password via lldap_set_password
-function createLdapUser(
-  lldapContainer: string,
-  adminPassword: string,
-  userId: string,
-  email: string,
-  password: string
-): void {
-  // Create user via GraphQL using curl from a container that can reach LLDAP
-  // First, get auth token
-  console.log('Getting LLDAP auth token...');
-  const tokenResult = execSync(
-    `docker exec ${lldapContainer} curl -s -X POST ` +
-      `-H "Content-Type: application/json" ` +
-      `-d '{"username":"admin","password":"${adminPassword}"}' ` +
-      `"http://localhost:17170/auth/simple/login"`,
-    { encoding: 'utf-8' }
-  );
-  const { token } = JSON.parse(tokenResult);
-  console.log('Got auth token');
-
-  // Create user via GraphQL
-  console.log(`Creating user ${userId}...`);
-  const createQuery = `{"query":"mutation CreateUser($user: CreateUserInput!) { createUser(user: $user) { id email } }","variables":{"user":{"id":"${userId}","email":"${email}","displayName":"${userId}","firstName":"Test","lastName":"User"}}}`;
-
-  const createResult = execSync(
-    `docker exec ${lldapContainer} curl -s -X POST ` +
-      `-H "Content-Type: application/json" ` +
-      `-H "Authorization: Bearer ${token}" ` +
-      `-d '${createQuery}' ` +
-      `"http://localhost:17170/api/graphql"`,
-    { encoding: 'utf-8' }
-  );
-
-  const createJson = JSON.parse(createResult);
-  if (createJson.errors && !createJson.errors[0]?.message?.includes('already exists')) {
-    console.log('Create user result:', createResult);
-  }
-
-  // Set password using lldap_set_password tool
-  console.log(`Setting password for ${userId}...`);
-  try {
-    execSync(
-      `docker exec ${lldapContainer} /app/lldap_set_password --base-url http://localhost:17170 ` +
-        `--admin-username admin --admin-password "${adminPassword}" ` +
-        `--username "${userId}" --password "${password}"`,
-      { encoding: 'utf-8', stdio: 'pipe' }
-    );
-    console.log(`Password set for user: ${userId}`);
-  } catch (e: any) {
-    console.error('lldap_set_password error:', e.stderr || e.message);
-    throw e;
-  }
-
-  console.log(`Created LDAP user: ${userId}`);
-}
 
 // Run OCC command in Nextcloud container
 function occ(containerName: string, cmd: string): string {
@@ -286,7 +197,7 @@ test.describe('Nextcloud LDAP Integration', () => {
     }
 
     // 3. Configure Nextcloud LDAP
-    const creds = getLdapCredentials();
+    const creds = getLdapCredentials(SERVICE_NAME);
     configureNextcloudLdap(
       NEXTCLOUD_CONTAINER,
       LDAP_CONTAINER_IP,
