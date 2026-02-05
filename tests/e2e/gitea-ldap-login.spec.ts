@@ -204,7 +204,9 @@ test.describe('LDAP Authentication', () => {
     console.log('=== Cleaning up LDAP authentication test ===');
     try {
       dokku(`auth:destroy ${SERVICE_NAME} -f`, { quiet: true });
-    } catch {}
+    } catch (e: any) {
+      console.log('[cleanup] auth:destroy:', e.stderr?.trim() || e.message);
+    }
   });
 
   test('LLDAP service should be healthy', async () => {

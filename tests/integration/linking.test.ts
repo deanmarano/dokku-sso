@@ -10,13 +10,17 @@ describe('App Linking', () => {
   beforeAll(async () => {
     dokku = new DokkuAuth();
     // Clean up any stale resources first
-    try { await destroyTestApp(appName); } catch {}
+    try { await destroyTestApp(appName); } catch (e: any) {
+      console.log('[cleanup] destroyTestApp:', e.message);
+    }
     await dokku.createDirectory(serviceName);
     testApp = await createTestApp(appName);
   });
 
   afterAll(async () => {
-    try { await destroyTestApp(testApp); } catch {}
+    try { await destroyTestApp(testApp); } catch (e: any) {
+      console.log('[cleanup] destroyTestApp:', e.message);
+    }
     await dokku.cleanup();
   });
 

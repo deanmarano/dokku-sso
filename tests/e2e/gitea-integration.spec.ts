@@ -111,13 +111,19 @@ test.describe('App LDAP Integration', () => {
     console.log('=== Cleaning up test environment ===');
     try {
       dokku(`auth:unlink ${SERVICE_NAME} ${TEST_APP}`, { quiet: true });
-    } catch {}
+    } catch (e: any) {
+      console.log('[cleanup] auth:unlink:', e.stderr?.trim() || e.message);
+    }
     try {
       dokku(`apps:destroy ${TEST_APP} --force`, { quiet: true });
-    } catch {}
+    } catch (e: any) {
+      console.log('[cleanup] apps:destroy:', e.stderr?.trim() || e.message);
+    }
     try {
       dokku(`auth:destroy ${SERVICE_NAME} -f`, { quiet: true });
-    } catch {}
+    } catch (e: any) {
+      console.log('[cleanup] auth:destroy:', e.stderr?.trim() || e.message);
+    }
   });
 
   test('LLDAP service should be healthy', async () => {

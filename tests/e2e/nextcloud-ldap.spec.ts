@@ -230,7 +230,11 @@ test.describe('Nextcloud LDAP Integration', () => {
     // Remove existing container if present
     try {
       execSync(`docker rm -f ${NEXTCLOUD_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
-    } catch {}
+    } catch (e: any) {
+      if (!e.stderr?.includes('No such container')) {
+        console.log('[cleanup]', e.stderr?.trim() || e.message);
+      }
+    }
 
     // Run Nextcloud with SQLite for simplicity (no port mapping needed - we use OCC)
     execSync(
@@ -320,10 +324,16 @@ test.describe('Nextcloud LDAP Integration', () => {
     console.log('=== Cleaning up Nextcloud LDAP test ===');
     try {
       execSync(`docker rm -f ${NEXTCLOUD_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
-    } catch {}
+    } catch (e: any) {
+      if (!e.stderr?.includes('No such container')) {
+        console.log('[cleanup]', e.stderr?.trim() || e.message);
+      }
+    }
     try {
       dokku(`auth:destroy ${SERVICE_NAME} -f`, { quiet: true });
-    } catch {}
+    } catch (e: any) {
+      console.log('[cleanup] auth:destroy:', e.stderr?.trim() || e.message);
+    }
   });
 
   test('Nextcloud LDAP integration works end-to-end', async () => {

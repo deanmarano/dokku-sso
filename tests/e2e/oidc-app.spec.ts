@@ -314,7 +314,11 @@ test.describe('OIDC Application Browser Flow', () => {
     console.log('Deploying whoami backend...');
     try {
       execSync(`docker rm -f ${BACKEND_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
-    } catch {}
+    } catch (e: any) {
+      if (!e.stderr?.includes('No such container')) {
+        console.log('[cleanup]', e.stderr?.trim() || e.message);
+      }
+    }
 
     execSync(
       `docker run -d --name ${BACKEND_CONTAINER} ` +
@@ -334,7 +338,11 @@ test.describe('OIDC Application Browser Flow', () => {
     console.log('Deploying nginx TLS proxy...');
     try {
       execSync(`docker rm -f ${NGINX_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
-    } catch {}
+    } catch (e: any) {
+      if (!e.stderr?.includes('No such container')) {
+        console.log('[cleanup]', e.stderr?.trim() || e.message);
+      }
+    }
 
     // Create nginx config using Docker's embedded DNS resolver
     // The 'set $var' + proxy_pass $var pattern makes nginx resolve at request time
@@ -412,7 +420,11 @@ http {
     console.log('Deploying oauth2-proxy...');
     try {
       execSync(`docker rm -f ${OAUTH2_PROXY_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
-    } catch {}
+    } catch (e: any) {
+      if (!e.stderr?.includes('No such container')) {
+        console.log('[cleanup]', e.stderr?.trim() || e.message);
+      }
+    }
 
     // Cookie secret must be exactly 16, 24, or 32 bytes for AES cipher
     const cookieSecret = '01234567890123456789012345678901'; // exactly 32 bytes
@@ -490,19 +502,35 @@ http {
     console.log('=== Cleaning up OIDC application test environment ===');
     try {
       execSync(`docker rm -f ${NGINX_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
-    } catch {}
+    } catch (e: any) {
+      if (!e.stderr?.includes('No such container')) {
+        console.log('[cleanup]', e.stderr?.trim() || e.message);
+      }
+    }
     try {
       execSync(`docker rm -f ${OAUTH2_PROXY_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
-    } catch {}
+    } catch (e: any) {
+      if (!e.stderr?.includes('No such container')) {
+        console.log('[cleanup]', e.stderr?.trim() || e.message);
+      }
+    }
     try {
       execSync(`docker rm -f ${BACKEND_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
-    } catch {}
+    } catch (e: any) {
+      if (!e.stderr?.includes('No such container')) {
+        console.log('[cleanup]', e.stderr?.trim() || e.message);
+      }
+    }
     try {
       dokku(`auth:frontend:destroy ${FRONTEND_SERVICE} -f`, { quiet: true });
-    } catch {}
+    } catch (e: any) {
+      console.log('[cleanup] frontend:destroy:', e.stderr?.trim() || e.message);
+    }
     try {
       dokku(`auth:destroy ${DIRECTORY_SERVICE} -f`, { quiet: true });
-    } catch {}
+    } catch (e: any) {
+      console.log('[cleanup] auth:destroy:', e.stderr?.trim() || e.message);
+    }
   });
 
   test('OIDC browser login flow works end-to-end', async ({ page }) => {

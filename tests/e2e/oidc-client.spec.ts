@@ -177,10 +177,14 @@ test.describe('OIDC Client Integration', () => {
     console.log('=== Cleaning up OIDC test environment ===');
     try {
       dokku(`auth:frontend:destroy ${FRONTEND_SERVICE} -f`, { quiet: true });
-    } catch {}
+    } catch (e: any) {
+      console.log('[cleanup] frontend:destroy:', e.stderr?.trim() || e.message);
+    }
     try {
       dokku(`auth:destroy ${DIRECTORY_SERVICE} -f`, { quiet: true });
-    } catch {}
+    } catch (e: any) {
+      console.log('[cleanup] auth:destroy:', e.stderr?.trim() || e.message);
+    }
   });
 
   test('LLDAP directory service should be running', async () => {

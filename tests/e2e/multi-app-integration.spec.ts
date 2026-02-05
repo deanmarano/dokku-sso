@@ -91,14 +91,20 @@ test.describe('Multiple App LDAP Integration', () => {
     for (const app of TEST_APPS) {
       try {
         dokku(`auth:unlink ${SERVICE_NAME} ${app}`, { quiet: true });
-      } catch {}
+      } catch (e: any) {
+        console.log(`[cleanup] auth:unlink ${app}:`, e.stderr?.trim() || e.message);
+      }
       try {
         dokku(`apps:destroy ${app} --force`, { quiet: true });
-      } catch {}
+      } catch (e: any) {
+        console.log(`[cleanup] apps:destroy ${app}:`, e.stderr?.trim() || e.message);
+      }
     }
     try {
       dokku(`auth:destroy ${SERVICE_NAME} -f`, { quiet: true });
-    } catch {}
+    } catch (e: any) {
+      console.log('[cleanup] auth:destroy:', e.stderr?.trim() || e.message);
+    }
   });
 
   test('should link multiple apps to same LLDAP service', async () => {
