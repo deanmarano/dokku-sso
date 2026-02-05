@@ -141,7 +141,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-gitea
-          path: playwright-report/
+          path: test-results/
 
       - name: Collect logs on failure
         if: failure()
@@ -197,7 +197,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-nextcloud
-          path: playwright-report/
+          path: test-results/
 
       - name: Collect logs on failure
         if: failure()
@@ -253,7 +253,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-multi-app
-          path: playwright-report/
+          path: test-results/
 
       - name: Collect logs on failure
         if: failure()
@@ -315,7 +315,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-oidc-app
-          path: playwright-report/
+          path: test-results/
 
       - name: Collect logs on failure
         if: failure()
