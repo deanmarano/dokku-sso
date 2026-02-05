@@ -313,7 +313,7 @@ test.describe('OIDC Application Browser Flow', () => {
     // 8. Deploy a simple whoami backend
     console.log('Deploying whoami backend...');
     try {
-      execSync(`docker rm -f ${BACKEND_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${BACKEND_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
     } catch {}
 
     execSync(
@@ -333,7 +333,7 @@ test.describe('OIDC Application Browser Flow', () => {
     // (it doesn't exist yet, but will be resolved at request time, not startup).
     console.log('Deploying nginx TLS proxy...');
     try {
-      execSync(`docker rm -f ${NGINX_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${NGINX_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
     } catch {}
 
     // Create nginx config using Docker's embedded DNS resolver
@@ -411,7 +411,7 @@ http {
     // 10. Deploy oauth2-proxy (AFTER nginx so OIDC discovery works)
     console.log('Deploying oauth2-proxy...');
     try {
-      execSync(`docker rm -f ${OAUTH2_PROXY_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${OAUTH2_PROXY_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
     } catch {}
 
     // Cookie secret must be exactly 16, 24, or 32 bytes for AES cipher
@@ -489,13 +489,13 @@ http {
   test.afterAll(async () => {
     console.log('=== Cleaning up OIDC application test environment ===');
     try {
-      execSync(`docker rm -f ${NGINX_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${NGINX_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
     } catch {}
     try {
-      execSync(`docker rm -f ${OAUTH2_PROXY_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${OAUTH2_PROXY_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
     } catch {}
     try {
-      execSync(`docker rm -f ${BACKEND_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${BACKEND_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
     } catch {}
     try {
       dokku(`auth:frontend:destroy ${FRONTEND_SERVICE} -f`, { quiet: true });

@@ -229,7 +229,7 @@ test.describe('Nextcloud LDAP Integration', () => {
 
     // Remove existing container if present
     try {
-      execSync(`docker rm -f ${NEXTCLOUD_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${NEXTCLOUD_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
     } catch {}
 
     // Run Nextcloud with SQLite for simplicity (no port mapping needed - we use OCC)
@@ -271,7 +271,7 @@ test.describe('Nextcloud LDAP Integration', () => {
     ).trim().split(' ')[0];
 
     try {
-      execSync(`docker network connect ${ncNetwork} ${NEXTCLOUD_CONTAINER} 2>/dev/null`, {
+      execSync(`docker network connect ${ncNetwork} ${NEXTCLOUD_CONTAINER}`, {
         encoding: 'utf-8',
       });
       console.log(`Connected Nextcloud to network: ${ncNetwork}`);
@@ -319,7 +319,7 @@ test.describe('Nextcloud LDAP Integration', () => {
   test.afterAll(async () => {
     console.log('=== Cleaning up Nextcloud LDAP test ===');
     try {
-      execSync(`docker rm -f ${NEXTCLOUD_CONTAINER} 2>/dev/null`, { encoding: 'utf-8' });
+      execSync(`docker rm -f ${NEXTCLOUD_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
     } catch {}
     try {
       dokku(`auth:destroy ${SERVICE_NAME} -f`, { quiet: true });
