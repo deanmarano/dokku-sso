@@ -266,7 +266,9 @@ provider_use_directory() {
   CREDS=$(provider_get_bind_credentials "$DIRECTORY_SERVICE")
   echo ""
   echo "       LDAP Configuration:"
-  echo "$CREDS" | sed 's/^/         /'
+  while IFS= read -r line; do
+    echo "         $line"
+  done <<< "$CREDS"
 }
 
 # Enable OIDC (Authentik has OIDC enabled by default)
