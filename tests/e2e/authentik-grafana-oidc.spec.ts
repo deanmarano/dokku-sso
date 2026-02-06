@@ -55,9 +55,11 @@ let AUTH_NETWORK: string;
 // Check if dokku postgres and redis plugins are available
 function hasRequiredPlugins(): boolean {
   try {
-    const plugins = execSync('sudo dokku plugin:list', { encoding: 'utf-8' });
+    const cmd = USE_SUDO ? 'sudo dokku plugin:list' : 'dokku plugin:list';
+    const plugins = execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
     return plugins.includes('postgres') && plugins.includes('redis');
-  } catch {
+  } catch (e: any) {
+    console.log('Plugin check failed:', e.message);
     return false;
   }
 }
