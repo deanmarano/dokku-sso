@@ -46,7 +46,7 @@ if [[ -f "$LINKED_VARS_FILE" ]]; then
 
   if [[ ${#VARS_TO_UNSET[@]} -gt 0 ]]; then
     echo "-----> Removing LDAP environment variables"
-    dokku config:unset --no-restart "$APP" "${VARS_TO_UNSET[@]}" >/dev/null || true
+    "$DOKKU_BIN" config:unset --no-restart "$APP" "${VARS_TO_UNSET[@]}" >/dev/null || true
   fi
 
   rm -f "$LINKED_VARS_FILE"
@@ -54,7 +54,7 @@ fi
 
 # Detach from auth network
 echo "-----> Detaching $APP from auth network"
-dokku network:set "$APP" attach-post-deploy "" 2>/dev/null || true
+"$DOKKU_BIN" network:set "$APP" attach-post-deploy "" 2>/dev/null || true
 
 # Remove from links file
 grep -v "^${APP}$" "$SERVICE_ROOT/LINKS" > "$SERVICE_ROOT/LINKS.tmp" || true

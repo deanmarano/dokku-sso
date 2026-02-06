@@ -406,7 +406,7 @@ provider_protect_app() {
   DOMAIN=$(cat "$CONFIG_DIR/DOMAIN")
 
   # Set nginx configuration for forward auth
-  dokku config:set --no-restart "$APP" \
+  "$DOKKU_BIN" config:set --no-restart "$APP" \
     AUTHELIA_URL="http://$CONTAINER_NAME:9091" \
     AUTHELIA_DOMAIN="$DOMAIN"
 
@@ -416,7 +416,7 @@ provider_protect_app() {
 
   # Connect app to auth network
   local APP_CONTAINER
-  APP_CONTAINER=$(dokku ps:report "$APP" --ps-running-container 2>/dev/null || echo "")
+  APP_CONTAINER=$("$DOKKU_BIN" ps:report "$APP" --ps-running-container 2>/dev/null || echo "")
   if [[ -n "$APP_CONTAINER" ]]; then
     docker network connect "$AUTH_NETWORK" "$APP_CONTAINER" 2>/dev/null || true
   fi
@@ -429,7 +429,7 @@ provider_unprotect_app() {
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
 
   # Remove Authelia config
-  dokku config:unset --no-restart "$APP" AUTHELIA_URL AUTHELIA_DOMAIN 2>/dev/null || true
+  "$DOKKU_BIN" config:unset --no-restart "$APP" AUTHELIA_URL AUTHELIA_DOMAIN 2>/dev/null || true
 
   # Remove from protected apps list
   if [[ -f "$SERVICE_ROOT/PROTECTED" ]]; then

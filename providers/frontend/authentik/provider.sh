@@ -51,20 +51,20 @@ provider_create_container() {
 
   # Create PostgreSQL database using dokku plugin
   echo "-----> Creating PostgreSQL database"
-  if ! dokku postgres:exists "$BASE_NAME" 2>/dev/null; then
-    dokku postgres:create "$BASE_NAME" >/dev/null
+  if ! "$DOKKU_BIN" postgres:exists "$BASE_NAME" 2>/dev/null; then
+    "$DOKKU_BIN" postgres:create "$BASE_NAME" >/dev/null
   fi
   local POSTGRES_URL
-  POSTGRES_URL=$(dokku postgres:info "$BASE_NAME" --dsn 2>/dev/null)
+  POSTGRES_URL=$("$DOKKU_BIN" postgres:info "$BASE_NAME" --dsn 2>/dev/null)
   echo "$POSTGRES_URL" > "$CONFIG_DIR/POSTGRES_URL"
 
   # Create Redis instance using dokku plugin
   echo "-----> Creating Redis instance"
-  if ! dokku redis:exists "$BASE_NAME" 2>/dev/null; then
-    dokku redis:create "$BASE_NAME" >/dev/null
+  if ! "$DOKKU_BIN" redis:exists "$BASE_NAME" 2>/dev/null; then
+    "$DOKKU_BIN" redis:create "$BASE_NAME" >/dev/null
   fi
   local REDIS_URL
-  REDIS_URL=$(dokku redis:info "$BASE_NAME" --dsn 2>/dev/null)
+  REDIS_URL=$("$DOKKU_BIN" redis:info "$BASE_NAME" --dsn 2>/dev/null)
   echo "$REDIS_URL" > "$CONFIG_DIR/REDIS_URL"
 
   # Get LDAP settings if linked to a directory
@@ -179,13 +179,13 @@ provider_validate_config() {
   fi
 
   # Check if dokku postgres plugin is installed
-  if ! command -v dokku &>/dev/null || ! dokku plugin:list 2>/dev/null | grep -q postgres; then
+  if ! "$DOKKU_BIN" plugin:list 2>/dev/null | grep -q postgres; then
     echo "!     dokku postgres plugin is required" >&2
     return 1
   fi
 
   # Check if dokku redis plugin is installed
-  if ! dokku plugin:list 2>/dev/null | grep -q redis; then
+  if ! "$DOKKU_BIN" plugin:list 2>/dev/null | grep -q redis; then
     echo "!     dokku redis plugin is required" >&2
     return 1
   fi
@@ -360,7 +360,7 @@ provider_protect_app() {
   DOMAIN=$(cat "$CONFIG_DIR/DOMAIN")
 
   # Set environment for forward auth proxy
-  dokku config:set --no-restart "$APP" \
+  "$DOKKU_BIN" config:set --no-restart "$APP" \
     AUTHENTIK_URL="http://$SERVER_CONTAINER:9000" \
     AUTHENTIK_DOMAIN="$DOMAIN"
 
@@ -370,7 +370,7 @@ provider_protect_app() {
 
   # Connect app to auth network
   local APP_CONTAINER
-  APP_CONTAINER=$(dokku ps:report "$APP" --ps-running-container 2>/dev/null || echo "")
+  APP_CONTAINER=$("$DOKKU_BIN" ps:report "$APP" --ps-running-container 2>/dev/null || echo "")
   if [[ -n "$APP_CONTAINER" ]]; then
     docker network connect "$AUTH_NETWORK" "$APP_CONTAINER" 2>/dev/null || true
   fi
@@ -387,7 +387,7 @@ provider_unprotect_app() {
   local APP="$2"
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
 
-  dokku config:unset --no-restart "$APP" AUTHENTIK_URL AUTHENTIK_DOMAIN 2>/dev/null || true
+  "$DOKKU_BIN" config:unset --no-restart "$APP" AUTHENTIK_URL AUTHENTIK_DOMAIN 2>/dev/null || true
 
   if [[ -f "$SERVICE_ROOT/PROTECTED" ]]; then
     grep -v "^${APP}$" "$SERVICE_ROOT/PROTECTED" > "$SERVICE_ROOT/PROTECTED.tmp" || true
@@ -411,15 +411,15 @@ provider_destroy() {
   docker rm "$WORKER_CONTAINER" 2>/dev/null || true
 
   # Destroy PostgreSQL database
-  if dokku postgres:exists "$BASE_NAME" 2>/dev/null; then
+  if "$DOKKU_BIN" postgres:exists "$BASE_NAME" 2>/dev/null; then
     echo "       Destroying PostgreSQL database..."
-    dokku postgres:destroy "$BASE_NAME" -f >/dev/null 2>&1 || true
+    "$DOKKU_BIN" postgres:destroy "$BASE_NAME" -f >/dev/null 2>&1 || true
   fi
 
   # Destroy Redis instance
-  if dokku redis:exists "$BASE_NAME" 2>/dev/null; then
+  if "$DOKKU_BIN" redis:exists "$BASE_NAME" 2>/dev/null; then
     echo "       Destroying Redis instance..."
-    dokku redis:destroy "$BASE_NAME" -f >/dev/null 2>&1 || true
+    "$DOKKU_BIN" redis:destroy "$BASE_NAME" -f >/dev/null 2>&1 || true
   fi
 }
 

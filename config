@@ -3,6 +3,9 @@
 export PLUGIN_COMMAND_PREFIX="auth"
 export PLUGIN_SERVICE="auth"
 export PLUGIN_DATA_ROOT="${DOKKU_LIB_ROOT:-/var/lib/dokku}/services/auth"
+
+# Dokku binary path - use full path to avoid basher PATH issues
+export DOKKU_BIN="${DOKKU_BIN:-/usr/bin/dokku}"
 PLUGIN_BASE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PLUGIN_BASE_PATH
 
