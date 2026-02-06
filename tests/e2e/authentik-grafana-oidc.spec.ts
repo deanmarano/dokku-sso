@@ -43,24 +43,6 @@ const GRAFANA_HTTPS_PORT = 9444;
 let AUTHENTIK_INTERNAL_IP: string;
 let AUTH_NETWORK: string;
 
-function getAuthentikCredentials(serviceName: string): { user: string; password: string; token: string } {
-  const serviceRoot = `/var/lib/dokku/services/auth/frontend/${serviceName}`;
-  try {
-    const user = execSync(`sudo cat ${serviceRoot}/ADMIN_USER 2>/dev/null || echo akadmin`, {
-      encoding: 'utf-8',
-    }).trim();
-    const password = execSync(`sudo cat ${serviceRoot}/ADMIN_PASSWORD`, {
-      encoding: 'utf-8',
-    }).trim();
-    const token = execSync(`sudo cat ${serviceRoot}/API_TOKEN`, {
-      encoding: 'utf-8',
-    }).trim();
-    return { user, password, token };
-  } catch (e: any) {
-    throw new Error(`Could not get Authentik credentials: ${e.message}`);
-  }
-}
-
 // Generate self-signed certificates for TLS
 function generateCerts(): void {
   const certDir = '/tmp/authentik-grafana-certs';
@@ -148,10 +130,6 @@ test.describe('Authentik + Grafana OIDC Infrastructure', () => {
     const authentikContainerName = `dokku.auth.frontend.${FRONTEND_SERVICE}`;
     AUTHENTIK_INTERNAL_IP = getContainerIp(authentikContainerName);
     console.log(`Authentik internal IP: ${AUTHENTIK_INTERNAL_IP}`);
-
-    // Get bootstrap credentials
-    const akCreds = getAuthentikCredentials(FRONTEND_SERVICE);
-    console.log('Got Authentik bootstrap credentials');
 
     // 3. Deploy nginx TLS proxy
     console.log('Deploying nginx TLS proxy...');
