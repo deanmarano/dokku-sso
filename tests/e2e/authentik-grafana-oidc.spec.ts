@@ -72,9 +72,34 @@ function getAuthentikCredentials(serviceName: string): { password: string; token
   return { password, token };
 }
 
+// Make API request to Authentik via host curl (not docker exec)
+function authentikApiRequest(
+  method: string,
+  path: string,
+  token: string,
+  body?: object
+): { ok: boolean; data?: any; error?: string } {
+  const url = `https://${AUTH_DOMAIN}:${AUTHENTIK_HTTPS_PORT}${path}`;
+  const curlArgs = [
+    'curl', '-sk', '-X', method,
+    '-H', `Authorization: Bearer ${token}`,
+    '-H', 'Content-Type: application/json',
+  ];
+  if (body) {
+    curlArgs.push('-d', JSON.stringify(body));
+  }
+  curlArgs.push(url);
+
+  try {
+    const result = execSync(curlArgs.join(' '), { encoding: 'utf-8', timeout: 30000 });
+    return { ok: true, data: JSON.parse(result) };
+  } catch (e: any) {
+    return { ok: false, error: e.message };
+  }
+}
+
 // Configure Authentik via API - create OAuth2 provider and application
 async function configureAuthentikOAuth2(
-  containerName: string,
   token: string,
   clientId: string,
   clientSecret: string,
@@ -84,26 +109,17 @@ async function configureAuthentikOAuth2(
 
   // First, get the authorization flow pk
   let authFlowPk = '';
-  try {
-    const flowsResult = execSync(
-      `docker exec ${containerName} curl -sf ` +
-        `'http://localhost:9000/api/v3/flows/instances/?designation=authorization' ` +
-        `-H 'Authorization: Bearer ${token}'`,
-      { encoding: 'utf-8', timeout: 30000 }
-    );
-    const flows = JSON.parse(flowsResult);
-    if (flows.results && flows.results.length > 0) {
-      authFlowPk = flows.results[0].pk;
-      console.log(`Found authorization flow: ${authFlowPk}`);
-    }
-  } catch (e: any) {
-    console.log('Could not get flows:', e.message);
+  const flowsResult = authentikApiRequest('GET', '/api/v3/flows/instances/?designation=authorization', token);
+  if (flowsResult.ok && flowsResult.data?.results?.length > 0) {
+    authFlowPk = flowsResult.data.results[0].pk;
+    console.log(`Found authorization flow: ${authFlowPk}`);
+  } else {
+    console.log('Could not get flows:', flowsResult.error || 'empty results');
   }
 
   // Create OAuth2 provider
-  const providerPayload = JSON.stringify({
+  const providerPayload: any = {
     name: 'Grafana OIDC Provider',
-    authorization_flow: authFlowPk || undefined,
     client_type: 'confidential',
     client_id: clientId,
     client_secret: clientSecret,
@@ -114,37 +130,24 @@ async function configureAuthentikOAuth2(
     refresh_token_validity: 'days=30',
     include_claims_in_id_token: true,
     sub_mode: 'user_email',
-  });
+  };
+  if (authFlowPk) {
+    providerPayload.authorization_flow = authFlowPk;
+  }
 
   let providerPk = '';
-  try {
-    const providerResult = execSync(
-      `docker exec ${containerName} curl -sf -X POST ` +
-        `'http://localhost:9000/api/v3/providers/oauth2/' ` +
-        `-H 'Authorization: Bearer ${token}' ` +
-        `-H 'Content-Type: application/json' ` +
-        `-d '${providerPayload}'`,
-      { encoding: 'utf-8', timeout: 30000 }
-    );
-    const provider = JSON.parse(providerResult);
-    providerPk = provider.pk;
+  const providerResult = authentikApiRequest('POST', '/api/v3/providers/oauth2/', token, providerPayload);
+  if (providerResult.ok && providerResult.data?.pk) {
+    providerPk = providerResult.data.pk;
     console.log(`OAuth2 provider created with pk: ${providerPk}`);
-  } catch (e: any) {
-    console.log('OAuth2 provider creation result:', e.stderr || e.message);
+  } else {
+    console.log('OAuth2 provider creation result:', providerResult.error || 'no pk returned');
     // Try to get existing provider
-    try {
-      const existingResult = execSync(
-        `docker exec ${containerName} curl -sf ` +
-          `'http://localhost:9000/api/v3/providers/oauth2/?search=${clientId}' ` +
-          `-H 'Authorization: Bearer ${token}'`,
-        { encoding: 'utf-8', timeout: 30000 }
-      );
-      const existing = JSON.parse(existingResult);
-      if (existing.results && existing.results.length > 0) {
-        providerPk = existing.results[0].pk;
-        console.log(`Found existing provider: ${providerPk}`);
-      }
-    } catch {}
+    const existingResult = authentikApiRequest('GET', `/api/v3/providers/oauth2/?search=${clientId}`, token);
+    if (existingResult.ok && existingResult.data?.results?.length > 0) {
+      providerPk = existingResult.data.results[0].pk;
+      console.log(`Found existing provider: ${providerPk}`);
+    }
   }
 
   if (!providerPk) {
@@ -153,32 +156,24 @@ async function configureAuthentikOAuth2(
   }
 
   // Create application
-  const appPayload = JSON.stringify({
+  const appPayload = {
     name: 'Grafana',
     slug: 'grafana',
     provider: parseInt(providerPk),
     meta_launch_url: `https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/`,
     open_in_new_tab: false,
-  });
+  };
 
-  try {
-    execSync(
-      `docker exec ${containerName} curl -sf -X POST ` +
-        `'http://localhost:9000/api/v3/core/applications/' ` +
-        `-H 'Authorization: Bearer ${token}' ` +
-        `-H 'Content-Type: application/json' ` +
-        `-d '${appPayload}'`,
-      { encoding: 'utf-8', timeout: 30000 }
-    );
+  const appResult = authentikApiRequest('POST', '/api/v3/core/applications/', token, appPayload);
+  if (appResult.ok) {
     console.log('Application created');
-  } catch (e: any) {
-    console.log('Application creation result:', e.stderr || e.message);
+  } else {
+    console.log('Application creation result:', appResult.error);
   }
 }
 
 // Create a user in Authentik via API
 async function createAuthentikUser(
-  containerName: string,
   token: string,
   username: string,
   email: string,
@@ -186,43 +181,27 @@ async function createAuthentikUser(
 ): Promise<void> {
   console.log(`Creating user ${username} in Authentik...`);
 
-  const userPayload = JSON.stringify({
+  const userPayload = {
     username: username,
     name: username,
     email: email,
     is_active: true,
     groups: [],
-  });
+  };
 
   let userPk = '';
-  try {
-    const userResult = execSync(
-      `docker exec ${containerName} curl -sf -X POST ` +
-        `'http://localhost:9000/api/v3/core/users/' ` +
-        `-H 'Authorization: Bearer ${token}' ` +
-        `-H 'Content-Type: application/json' ` +
-        `-d '${userPayload}'`,
-      { encoding: 'utf-8', timeout: 30000 }
-    );
-    const user = JSON.parse(userResult);
-    userPk = user.pk;
+  const userResult = authentikApiRequest('POST', '/api/v3/core/users/', token, userPayload);
+  if (userResult.ok && userResult.data?.pk) {
+    userPk = userResult.data.pk;
     console.log(`User created with pk: ${userPk}`);
-  } catch (e: any) {
-    console.log('User creation result:', e.stderr || e.message);
+  } else {
+    console.log('User creation result:', userResult.error || 'no pk returned');
     // Try to get existing user
-    try {
-      const existingResult = execSync(
-        `docker exec ${containerName} curl -sf ` +
-          `'http://localhost:9000/api/v3/core/users/?username=${username}' ` +
-          `-H 'Authorization: Bearer ${token}'`,
-        { encoding: 'utf-8', timeout: 30000 }
-      );
-      const existing = JSON.parse(existingResult);
-      if (existing.results && existing.results.length > 0) {
-        userPk = existing.results[0].pk;
-        console.log(`Found existing user: ${userPk}`);
-      }
-    } catch {}
+    const existingResult = authentikApiRequest('GET', `/api/v3/core/users/?username=${username}`, token);
+    if (existingResult.ok && existingResult.data?.results?.length > 0) {
+      userPk = existingResult.data.results[0].pk;
+      console.log(`Found existing user: ${userPk}`);
+    }
   }
 
   if (!userPk) {
@@ -231,19 +210,11 @@ async function createAuthentikUser(
   }
 
   // Set password
-  const passwordPayload = JSON.stringify({ password: password });
-  try {
-    execSync(
-      `docker exec ${containerName} curl -sf -X POST ` +
-        `'http://localhost:9000/api/v3/core/users/${userPk}/set_password/' ` +
-        `-H 'Authorization: Bearer ${token}' ` +
-        `-H 'Content-Type: application/json' ` +
-        `-d '${passwordPayload}'`,
-      { encoding: 'utf-8', timeout: 30000 }
-    );
+  const passwordResult = authentikApiRequest('POST', `/api/v3/core/users/${userPk}/set_password/`, token, { password });
+  if (passwordResult.ok) {
     console.log('Password set');
-  } catch (e: any) {
-    console.log('Password set result:', e.stderr || e.message);
+  } else {
+    console.log('Password set result:', passwordResult.error);
   }
 }
 
@@ -307,26 +278,7 @@ test.describe('Authentik + Grafana OIDC Browser Flow', () => {
     BOOTSTRAP_TOKEN = akCreds.token;
     console.log('Got Authentik bootstrap credentials');
 
-    // 3. Configure Authentik via API
-    const redirectUri = `https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/login/generic_oauth`;
-    await configureAuthentikOAuth2(
-      authentikContainerName,
-      BOOTSTRAP_TOKEN,
-      OIDC_CLIENT_ID,
-      OIDC_CLIENT_SECRET,
-      redirectUri
-    );
-
-    // Create test user directly in Authentik
-    await createAuthentikUser(
-      authentikContainerName,
-      BOOTSTRAP_TOKEN,
-      TEST_USER,
-      TEST_EMAIL,
-      TEST_PASSWORD
-    );
-
-    // 4. Deploy nginx TLS proxy
+    // 4. Deploy nginx TLS proxy first (needed for API calls)
     console.log('Deploying nginx TLS proxy...');
     try {
       execSync(`docker rm -f ${NGINX_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
@@ -386,7 +338,7 @@ http {
 
     await new Promise((r) => setTimeout(r, 3000));
 
-    // Wait for Authentik HTTPS
+    // Wait for Authentik HTTPS before making API calls
     console.log('Waiting for Authentik HTTPS...');
     const authentikHttpsReady = await waitForHttps(
       `https://${AUTH_DOMAIN}:${AUTHENTIK_HTTPS_PORT}/-/health/ready/`,
@@ -398,6 +350,23 @@ http {
       throw new Error('Authentik HTTPS not ready');
     }
     console.log('Authentik HTTPS is ready');
+
+    // 3. Configure Authentik via API (now that HTTPS is available)
+    const redirectUri = `https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/login/generic_oauth`;
+    await configureAuthentikOAuth2(
+      BOOTSTRAP_TOKEN,
+      OIDC_CLIENT_ID,
+      OIDC_CLIENT_SECRET,
+      redirectUri
+    );
+
+    // Create test user directly in Authentik
+    await createAuthentikUser(
+      BOOTSTRAP_TOKEN,
+      TEST_USER,
+      TEST_EMAIL,
+      TEST_PASSWORD
+    );
 
     // Get nginx IP for Grafana host resolution
     const nginxIp = getContainerIp(NGINX_CONTAINER);

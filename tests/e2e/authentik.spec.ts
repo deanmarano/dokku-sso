@@ -106,14 +106,12 @@ test.describe('Authentik Frontend Provider', () => {
   test('health endpoint responds', async () => {
     const serverContainer = `dokku.auth.frontend.${SERVICE_NAME}`;
 
-    // Authentik health endpoint
+    // Use Authentik's built-in healthcheck command
     const result = execSync(
-      `docker exec ${serverContainer} wget -q -O- http://localhost:9000/-/health/ready/ 2>/dev/null || ` +
-        `docker exec ${serverContainer} curl -sf http://localhost:9000/-/health/ready/`,
+      `docker exec ${serverContainer} ak healthcheck`,
       { encoding: 'utf-8', timeout: 30000 }
     );
 
-    // Authentik returns empty body with 204 or just "ok" depending on version
     // The important thing is the command succeeded (didn't throw)
     console.log('Health check response:', result);
   });
