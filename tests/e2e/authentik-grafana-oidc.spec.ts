@@ -252,7 +252,25 @@ test.describe('Authentik + Grafana OIDC Browser Flow', () => {
     try {
       dokku(`auth:frontend:create ${FRONTEND_SERVICE} --provider authentik`);
     } catch (e: any) {
-      if (!e.stderr?.includes('already exists')) {
+      if (e.stderr?.includes('already exists')) {
+        // Service exists but might be broken (container deleted) - recreate it
+        console.log('Service exists, checking if it needs recreation...');
+        try {
+          const status = dokku(`auth:frontend:status ${FRONTEND_SERVICE}`, { quiet: true });
+          if (!status.includes('running') && !status.includes('healthy')) {
+            console.log('Service broken, recreating...');
+            dokku(`auth:frontend:destroy ${FRONTEND_SERVICE} -f`, { quiet: true });
+            dokku(`auth:frontend:create ${FRONTEND_SERVICE} --provider authentik`);
+          }
+        } catch {
+          // Status check failed, try to recreate
+          console.log('Cannot check status, recreating service...');
+          try {
+            dokku(`auth:frontend:destroy ${FRONTEND_SERVICE} -f`, { quiet: true });
+          } catch {}
+          dokku(`auth:frontend:create ${FRONTEND_SERVICE} --provider authentik`);
+        }
+      } else {
         throw e;
       }
     }
