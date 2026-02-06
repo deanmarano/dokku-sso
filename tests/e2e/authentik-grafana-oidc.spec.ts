@@ -80,20 +80,25 @@ function authentikApiRequest(
   body?: object
 ): { ok: boolean; data?: any; error?: string } {
   const url = `https://${AUTH_DOMAIN}:${AUTHENTIK_HTTPS_PORT}${path}`;
-  const curlArgs = [
-    'curl', '-sk', '-X', method,
-    '-H', `Authorization: Bearer ${token}`,
-    '-H', 'Content-Type: application/json',
-  ];
+
+  // Build properly escaped command
+  let cmd = `curl -sk -X ${method} ` +
+    `-H 'Authorization: Bearer ${token}' ` +
+    `-H 'Content-Type: application/json'`;
+
   if (body) {
-    curlArgs.push('-d', JSON.stringify(body));
+    // Escape single quotes in JSON by replacing ' with '\''
+    const jsonBody = JSON.stringify(body).replace(/'/g, "'\\''");
+    cmd += ` -d '${jsonBody}'`;
   }
-  curlArgs.push(url);
+  cmd += ` '${url}'`;
 
   try {
-    const result = execSync(curlArgs.join(' '), { encoding: 'utf-8', timeout: 30000 });
+    const result = execSync(cmd, { encoding: 'utf-8', timeout: 30000 });
     return { ok: true, data: JSON.parse(result) };
   } catch (e: any) {
+    console.log('Curl command failed:', cmd);
+    console.log('Error:', e.stderr || e.message);
     return { ok: false, error: e.message };
   }
 }
