@@ -150,6 +150,30 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       timeout: 600000, // 10 minutes
     },
+
+    // Jellyfin LDAP integration tests
+    {
+      name: 'jellyfin-ldap',
+      testMatch: ['jellyfin-ldap.spec.ts'],
+      use: { ...devices['Desktop Chrome'] },
+      timeout: 600000, // 10 minutes
+    },
+
+    // Immich OIDC integration tests
+    {
+      name: 'immich-oidc',
+      testMatch: ['immich-oidc.spec.ts'],
+      use: { ...devices['Desktop Chrome'] },
+      timeout: 600000, // 10 minutes
+    },
+
+    // Radarr forward auth integration tests
+    {
+      name: 'radarr-forward-auth',
+      testMatch: ['radarr-forward-auth.spec.ts'],
+      use: { ...devices['Desktop Chrome'] },
+      timeout: 600000, // 10 minutes
+    },
   ],
 
   // Output directory for test artifacts

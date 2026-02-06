@@ -9,17 +9,16 @@ import {
 } from './helpers';
 
 /**
- * Authentik + Grafana OIDC Infrastructure E2E Test
+ * Authentik + Grafana OIDC E2E Test - Full Browser Flow
  *
- * Tests that Authentik can be configured with OIDC and Grafana can connect:
+ * Tests a complete OIDC-protected Grafana with Authentik as identity provider:
  * 1. Create LLDAP directory service
  * 2. Create Authentik frontend with bootstrap credentials
  * 3. Deploy nginx TLS proxy
- * 4. Deploy Grafana with OIDC config pointing to Authentik
- * 5. Verify Grafana can reach Authentik's OIDC endpoints
- *
- * Note: Full browser login flow requires manual OAuth2 provider configuration
- * in Authentik's admin UI. This test verifies infrastructure connectivity.
+ * 4. Configure Authentik with OAuth2 provider and application via API
+ * 5. Create test user in Authentik
+ * 6. Deploy Grafana with OIDC config pointing to Authentik
+ * 7. Test full browser login flow through Grafana → Authentik → back to Grafana
  *
  * Requires:
  *   - /etc/hosts entries:
@@ -40,8 +39,18 @@ const APP_DOMAIN = 'grafana-authentik.test.local';
 const AUTHENTIK_HTTPS_PORT = 9443;
 const GRAFANA_HTTPS_PORT = 9444;
 
+// OIDC client settings
+const OIDC_CLIENT_ID = 'grafana-oidc-test';
+const OIDC_CLIENT_SECRET = 'grafana-oidc-secret-1234567890123456';
+
+// Test user
+const TEST_USER = 'grafanaoidcuser';
+const TEST_PASSWORD = 'GrafanaOidc123!';
+const TEST_EMAIL = 'grafanaoidc@test.local';
+
 let AUTHENTIK_INTERNAL_IP: string;
 let AUTH_NETWORK: string;
+let AUTHENTIK_BOOTSTRAP_TOKEN: string;
 
 // Generate self-signed certificates for TLS
 function generateCerts(): void {
@@ -60,7 +69,231 @@ function generateCerts(): void {
   );
 }
 
-test.describe('Authentik + Grafana OIDC Infrastructure', () => {
+/**
+ * Execute a Python script inside the Authentik container to make API calls.
+ * Authentik containers have Python but no curl/wget.
+ */
+function authentikApiRequest(
+  containerName: string,
+  method: string,
+  path: string,
+  token: string,
+  body?: object
+): string {
+  const bodyJson = body ? JSON.stringify(body).replace(/'/g, "\\'") : 'None';
+  const pythonScript = `
+import urllib.request
+import urllib.error
+import json
+import ssl
+
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+
+url = 'http://localhost:9000${path}'
+headers = {
+    'Authorization': 'Bearer ${token}',
+    'Content-Type': 'application/json',
+}
+data = ${bodyJson !== 'None' ? `json.dumps(${bodyJson}).encode('utf-8')` : 'None'}
+
+req = urllib.request.Request(url, data=data, headers=headers, method='${method}')
+try:
+    with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
+        result = resp.read().decode('utf-8')
+        print(result if result else '{}')
+except urllib.error.HTTPError as e:
+    body = e.read().decode('utf-8') if e.fp else ''
+    print(json.dumps({'error': str(e), 'status': e.code, 'body': body}))
+except Exception as e:
+    print(json.dumps({'error': str(e)}))
+`;
+
+  const result = execSync(
+    `docker exec ${containerName} python3 -c '${pythonScript.replace(/'/g, "'\"'\"'")}'`,
+    { encoding: 'utf-8', timeout: 60000 }
+  );
+  return result.trim();
+}
+
+/**
+ * Create OAuth2 provider in Authentik via API
+ */
+function createOAuth2Provider(
+  containerName: string,
+  token: string,
+  clientId: string,
+  clientSecret: string,
+  redirectUri: string
+): { providerId: number; providerName: string } {
+  const providerName = `grafana-oidc-provider-${Date.now()}`;
+
+  // First, get an authorization flow - we need its pk
+  console.log('Getting authorization flows...');
+  const flowsResult = authentikApiRequest(
+    containerName,
+    'GET',
+    '/api/v3/flows/instances/?designation=authorization',
+    token
+  );
+  const flows = JSON.parse(flowsResult);
+  if (flows.error || !flows.results || flows.results.length === 0) {
+    console.log('Flows result:', flowsResult);
+    throw new Error('No authorization flow found');
+  }
+  const authorizationFlow = flows.results[0].pk;
+  console.log(`Using authorization flow: ${authorizationFlow}`);
+
+  // Create OAuth2 provider
+  console.log('Creating OAuth2 provider...');
+  const providerResult = authentikApiRequest(
+    containerName,
+    'POST',
+    '/api/v3/providers/oauth2/',
+    token,
+    {
+      name: providerName,
+      authorization_flow: authorizationFlow,
+      client_type: 'confidential',
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uris: redirectUri,
+      signing_key: null,
+      access_token_validity: 'minutes=10',
+      refresh_token_validity: 'days=30',
+      sub_mode: 'user_username',
+      include_claims_in_id_token: true,
+      issuer_mode: 'per_provider',
+    }
+  );
+
+  const provider = JSON.parse(providerResult);
+  if (provider.error) {
+    console.log('Provider result:', providerResult);
+    throw new Error(`Failed to create OAuth2 provider: ${provider.error}`);
+  }
+  console.log(`Created OAuth2 provider: ${provider.pk}`);
+  return { providerId: provider.pk, providerName };
+}
+
+/**
+ * Create application in Authentik that uses the OAuth2 provider
+ */
+function createApplication(
+  containerName: string,
+  token: string,
+  providerId: number,
+  slug: string
+): void {
+  console.log('Creating application...');
+  const appResult = authentikApiRequest(
+    containerName,
+    'POST',
+    '/api/v3/core/applications/',
+    token,
+    {
+      name: `Grafana OIDC Test ${Date.now()}`,
+      slug: slug,
+      provider: providerId,
+      meta_launch_url: `https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/`,
+      open_in_new_tab: false,
+    }
+  );
+
+  const app = JSON.parse(appResult);
+  if (app.error) {
+    console.log('Application result:', appResult);
+    throw new Error(`Failed to create application: ${app.error}`);
+  }
+  console.log(`Created application: ${app.slug}`);
+}
+
+/**
+ * Create a user in Authentik via API
+ */
+function createAuthentikUser(
+  containerName: string,
+  token: string,
+  username: string,
+  email: string,
+  password: string
+): void {
+  console.log(`Creating user ${username}...`);
+
+  // Create user
+  const userResult = authentikApiRequest(
+    containerName,
+    'POST',
+    '/api/v3/core/users/',
+    token,
+    {
+      username: username,
+      name: username,
+      email: email,
+      is_active: true,
+      path: 'users',
+    }
+  );
+
+  const user = JSON.parse(userResult);
+  if (user.error && !user.body?.includes('already exists')) {
+    console.log('User result:', userResult);
+    throw new Error(`Failed to create user: ${user.error}`);
+  }
+
+  const userId = user.pk;
+  if (!userId) {
+    // User might already exist, try to find it
+    console.log('User may already exist, searching...');
+    const searchResult = authentikApiRequest(
+      containerName,
+      'GET',
+      `/api/v3/core/users/?username=${username}`,
+      token
+    );
+    const search = JSON.parse(searchResult);
+    if (search.results && search.results.length > 0) {
+      console.log(`Found existing user: ${search.results[0].pk}`);
+      // Set password for existing user
+      setAuthentikUserPassword(containerName, token, search.results[0].pk, password);
+      return;
+    }
+    throw new Error('Could not create or find user');
+  }
+
+  console.log(`Created user with ID: ${userId}`);
+
+  // Set password
+  setAuthentikUserPassword(containerName, token, userId, password);
+}
+
+function setAuthentikUserPassword(
+  containerName: string,
+  token: string,
+  userId: number,
+  password: string
+): void {
+  console.log(`Setting password for user ${userId}...`);
+  const pwResult = authentikApiRequest(
+    containerName,
+    'POST',
+    `/api/v3/core/users/${userId}/set_password/`,
+    token,
+    { password: password }
+  );
+
+  const pw = JSON.parse(pwResult);
+  if (pw.error) {
+    console.log('Password result:', pwResult);
+    throw new Error(`Failed to set password: ${pw.error}`);
+  }
+  console.log('Password set successfully');
+}
+
+test.describe('Authentik + Grafana OIDC Browser Flow', () => {
+  test.setTimeout(600000); // 10 minute timeout for the whole suite
+
   test.beforeAll(async () => {
     console.log('=== Setting up Authentik + Grafana OIDC test ===');
 
@@ -130,6 +363,22 @@ test.describe('Authentik + Grafana OIDC Infrastructure', () => {
     const authentikContainerName = `dokku.auth.frontend.${FRONTEND_SERVICE}`;
     AUTHENTIK_INTERNAL_IP = getContainerIp(authentikContainerName);
     console.log(`Authentik internal IP: ${AUTHENTIK_INTERNAL_IP}`);
+
+    // Get bootstrap token from service directory
+    try {
+      AUTHENTIK_BOOTSTRAP_TOKEN = execSync(
+        `sudo cat ${serviceDir}/BOOTSTRAP_TOKEN`,
+        { encoding: 'utf-8' }
+      ).trim();
+      console.log('Got bootstrap token');
+    } catch (e) {
+      console.log('Could not read bootstrap token, trying environment variable...');
+      // Try to get from container environment
+      AUTHENTIK_BOOTSTRAP_TOKEN = execSync(
+        `docker inspect ${authentikContainerName} --format '{{range .Config.Env}}{{println .}}{{end}}' | grep AUTHENTIK_BOOTSTRAP_TOKEN | cut -d= -f2`,
+        { encoding: 'utf-8' }
+      ).trim();
+    }
 
     // 3. Deploy nginx TLS proxy
     console.log('Deploying nginx TLS proxy...');
@@ -204,23 +453,53 @@ http {
     }
     console.log('Authentik HTTPS is ready');
 
+    // 4. Configure Authentik with OAuth2 provider and application
+    console.log('Configuring Authentik OAuth2...');
+    const appSlug = `grafana-oidc-${Date.now()}`;
+    const redirectUri = `https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/login/generic_oauth`;
+
+    const { providerId } = createOAuth2Provider(
+      authentikContainerName,
+      AUTHENTIK_BOOTSTRAP_TOKEN,
+      OIDC_CLIENT_ID,
+      OIDC_CLIENT_SECRET,
+      redirectUri
+    );
+
+    createApplication(
+      authentikContainerName,
+      AUTHENTIK_BOOTSTRAP_TOKEN,
+      providerId,
+      appSlug
+    );
+
+    // 5. Create test user in Authentik
+    console.log('Creating test user in Authentik...');
+    createAuthentikUser(
+      authentikContainerName,
+      AUTHENTIK_BOOTSTRAP_TOKEN,
+      TEST_USER,
+      TEST_EMAIL,
+      TEST_PASSWORD
+    );
+
     // Get nginx IP for Grafana host resolution
     const nginxIp = getContainerIp(NGINX_CONTAINER);
 
-    // 4. Deploy Grafana with OIDC
+    // 6. Deploy Grafana with OIDC
     console.log('Deploying Grafana with OIDC...');
     try {
       execSync(`docker rm -f ${GRAFANA_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
     } catch {}
 
-    // Grafana OIDC config pointing to Authentik (will fail without OAuth2 provider,
-    // but tests infrastructure connectivity)
+    // Grafana OIDC config pointing to Authentik
+    // Note: Authentik's OIDC endpoints are at /application/o/<provider-slug>/
     const grafanaEnv = [
       `GF_SERVER_ROOT_URL=https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/`,
       'GF_AUTH_GENERIC_OAUTH_ENABLED=true',
       'GF_AUTH_GENERIC_OAUTH_NAME=Authentik',
-      'GF_AUTH_GENERIC_OAUTH_CLIENT_ID=grafana-test',
-      'GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=grafana-test-secret',
+      `GF_AUTH_GENERIC_OAUTH_CLIENT_ID=${OIDC_CLIENT_ID}`,
+      `GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=${OIDC_CLIENT_SECRET}`,
       'GF_AUTH_GENERIC_OAUTH_SCOPES=openid profile email',
       `GF_AUTH_GENERIC_OAUTH_AUTH_URL=https://${AUTH_DOMAIN}:${AUTHENTIK_HTTPS_PORT}/application/o/authorize/`,
       `GF_AUTH_GENERIC_OAUTH_TOKEN_URL=https://${AUTH_DOMAIN}:${AUTHENTIK_HTTPS_PORT}/application/o/token/`,
@@ -265,7 +544,7 @@ http {
     console.log('Grafana is ready');
 
     console.log('=== Setup complete ===');
-  }, 600000);
+  });
 
   test.afterAll(async () => {
     console.log('=== Cleaning up Authentik + Grafana OIDC test ===');
@@ -287,53 +566,150 @@ http {
     }
   });
 
-  test('Authentik health endpoint responds via HTTPS', async () => {
-    const result = execSync(
-      `curl -sk https://${AUTH_DOMAIN}:${AUTHENTIK_HTTPS_PORT}/-/health/ready/`,
-      { encoding: 'utf-8', timeout: 10000 }
+  test('Full OIDC browser login flow works end-to-end', async ({ page }) => {
+    // This single test covers the full OIDC browser flow to avoid
+    // issues with Playwright's retry mechanism running afterAll between retries
+
+    // ===== Test 1: Authentik health endpoint responds =====
+    console.log('Test 1: Verifying Authentik is accessible...');
+    const healthResponse = await page.request.get(
+      `https://${AUTH_DOMAIN}:${AUTHENTIK_HTTPS_PORT}/-/health/ready/`,
+      { ignoreHTTPSErrors: true }
     );
-    // Authentik returns empty body with 200/204 for health check
-    expect(result).toBeDefined();
-  });
+    expect(healthResponse.ok()).toBe(true);
 
-  test('Authentik OpenID configuration endpoint responds', async () => {
-    const result = execSync(
-      `curl -sk https://${AUTH_DOMAIN}:${AUTHENTIK_HTTPS_PORT}/application/o/.well-known/openid-configuration`,
-      { encoding: 'utf-8', timeout: 10000 }
+    // ===== Test 2: Grafana health endpoint responds =====
+    console.log('Test 2: Verifying Grafana is accessible...');
+    const grafanaHealth = await page.request.get(
+      `https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/api/health`,
+      { ignoreHTTPSErrors: true }
     );
-    // This may return 404 if no applications are configured, but proves connectivity
-    expect(result).toBeDefined();
-  });
+    expect(grafanaHealth.ok()).toBe(true);
+    const grafanaHealthJson = await grafanaHealth.json();
+    expect(grafanaHealthJson.database).toBe('ok');
 
-  test('Grafana health endpoint responds via HTTPS', async () => {
-    // Grafana health via nginx proxy
-    const result = execSync(
-      `curl -sk https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/api/health`,
-      { encoding: 'utf-8', timeout: 10000 }
-    );
-    expect(result).toContain('ok');
-  });
-
-  test('Grafana can resolve Authentik domain', async () => {
-    // Verify Grafana container can reach Authentik
-    const result = execSync(
-      `docker exec ${GRAFANA_CONTAINER} curl -sk https://${AUTH_DOMAIN}:443/-/health/ready/`,
-      { encoding: 'utf-8', timeout: 10000 }
-    );
-    expect(result).toBeDefined();
-  });
-
-  test('Grafana login page shows OIDC option', async ({ page }) => {
-    // Navigate to Grafana login and verify OIDC button is present
-    await page.goto(`https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/login`, {
-      ignoreHTTPSErrors: true,
-    });
-
-    // Wait for page to load
+    // ===== Test 3: Grafana login page shows OIDC option =====
+    console.log('Test 3: Verifying Grafana login page shows OIDC option...');
+    await page.goto(`https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/login`);
     await page.waitForLoadState('networkidle');
 
     // Check that OAuth login option is shown (the "Sign in with Authentik" button)
     const oauthButton = page.locator('a[href*="login/generic_oauth"]');
     await expect(oauthButton).toBeVisible({ timeout: 10000 });
+    await page.screenshot({ path: 'test-results/grafana-login-page.png' }).catch(() => {});
+
+    // ===== Test 4: Full OIDC browser login flow =====
+    console.log('Test 4: Starting full OIDC login flow...');
+
+    // Clear cookies and start fresh
+    await page.context().clearCookies();
+
+    // Step 1: Navigate to Grafana login and click OIDC button
+    console.log('Step 4.1: Navigating to Grafana login...');
+    await page.goto(`https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/login`);
+    await page.waitForLoadState('networkidle');
+
+    // Click "Sign in with Authentik"
+    console.log('Step 4.2: Clicking OIDC login button...');
+    const oidcButton = page.locator('a[href*="login/generic_oauth"]');
+    await oidcButton.click();
+
+    // Step 2: Should be redirected to Authentik login page
+    console.log('Step 4.3: Waiting for redirect to Authentik...');
+    await page.waitForURL((url) => url.hostname.includes('authentik') || url.hostname === AUTH_DOMAIN, {
+      timeout: 30000,
+    });
+
+    await page.screenshot({ path: 'test-results/authentik-login-page.png' }).catch(() => {});
+
+    // Verify we're on the Authentik login page
+    console.log('Step 4.4: Verifying Authentik login page...');
+    // Authentik uses ak-flow-executor for login, look for username input
+    const usernameInput = page.locator('input[name="uidField"], input[name="username"], input[id="id_uid_field"]').first();
+    await expect(usernameInput).toBeVisible({ timeout: 15000 });
+
+    // Step 3: Fill in credentials
+    console.log('Step 4.5: Filling in credentials...');
+    await usernameInput.fill(TEST_USER);
+
+    // Authentik may have a two-step login (username first, then password)
+    // or single-page login. Let's handle both.
+    const submitButton = page.locator('button[type="submit"]').first();
+    await submitButton.click();
+
+    // Wait for password field (either already visible or appears after username submit)
+    await page.waitForTimeout(1000);
+    const passwordInput = page.locator('input[name="password"], input[type="password"]').first();
+    await expect(passwordInput).toBeVisible({ timeout: 10000 });
+    await passwordInput.fill(TEST_PASSWORD);
+
+    // Step 4: Submit the login form
+    console.log('Step 4.6: Submitting login form...');
+    await page.screenshot({ path: 'test-results/authentik-filled-form.png' }).catch(() => {});
+    const loginSubmit = page.locator('button[type="submit"]').first();
+    await loginSubmit.click();
+
+    // Step 5: Handle consent screen if shown
+    console.log('Step 4.7: Handling consent screen if shown...');
+    await page.waitForTimeout(2000);
+    const currentUrl = page.url();
+    console.log(`Current URL after login: ${currentUrl}`);
+    await page.screenshot({ path: 'test-results/authentik-after-login.png' }).catch(() => {});
+
+    // If still on Authentik (consent screen), click consent/allow
+    if (currentUrl.includes(AUTH_DOMAIN) || currentUrl.includes('authentik')) {
+      console.log('Still on Authentik - checking for consent screen...');
+
+      // Authentik consent page has "Allow" button
+      const consentSelectors = [
+        'button:has-text("Allow")',
+        'button:has-text("Continue")',
+        'button:has-text("Consent")',
+        'button:has-text("Authorize")',
+        'button[type="submit"]',
+      ];
+
+      for (const selector of consentSelectors) {
+        try {
+          const btn = page.locator(selector).first();
+          if (await btn.isVisible({ timeout: 2000 })) {
+            console.log(`Found consent button: ${selector}`);
+            await btn.click();
+            await page.waitForTimeout(1000);
+            break;
+          }
+        } catch {
+          // Try next selector
+        }
+      }
+    }
+
+    // Step 6: Wait for redirect back to Grafana
+    console.log('Step 4.8: Waiting for redirect back to Grafana...');
+    await page.waitForURL((url) => url.hostname === APP_DOMAIN || url.hostname.includes('grafana'), {
+      timeout: 30000,
+    });
+
+    // Step 7: Verify we're logged in to Grafana
+    console.log('Step 4.9: Verifying Grafana shows logged-in user...');
+    await page.waitForLoadState('networkidle');
+    await page.screenshot({ path: 'test-results/grafana-logged-in.png' }).catch(() => {});
+
+    // Check we're not on the login page anymore
+    const finalUrl = page.url();
+    console.log(`Final URL: ${finalUrl}`);
+    expect(finalUrl).not.toContain('/login');
+
+    // Verify we can access the user API endpoint (proves we're authenticated)
+    const userResponse = await page.request.get(
+      `https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/api/user`,
+      { ignoreHTTPSErrors: true }
+    );
+    expect(userResponse.ok()).toBe(true);
+    const userJson = await userResponse.json();
+    console.log('Logged in user:', userJson);
+    expect(userJson.login).toBe(TEST_USER);
+
+    console.log('All OIDC browser flow tests passed!');
   });
 });
