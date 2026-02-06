@@ -249,31 +249,25 @@ test.describe('Authentik + Grafana OIDC Browser Flow', () => {
 
     // 2. Create Authentik frontend service
     console.log('Creating Authentik frontend service...');
+
+    // Force cleanup of any leftover service from previous runs
+    const serviceDir = `/var/lib/dokku/services/auth/frontend/${FRONTEND_SERVICE}`;
     try {
-      dokku(`auth:frontend:create ${FRONTEND_SERVICE} --provider authentik`);
-    } catch (e: any) {
-      if (e.stderr?.includes('already exists')) {
-        // Service exists but might be broken (container deleted) - recreate it
-        console.log('Service exists, checking if it needs recreation...');
-        try {
-          const status = dokku(`auth:frontend:status ${FRONTEND_SERVICE}`, { quiet: true });
-          if (!status.includes('running') && !status.includes('healthy')) {
-            console.log('Service broken, recreating...');
-            dokku(`auth:frontend:destroy ${FRONTEND_SERVICE} -f`, { quiet: true });
-            dokku(`auth:frontend:create ${FRONTEND_SERVICE} --provider authentik`);
-          }
-        } catch {
-          // Status check failed, try to recreate
-          console.log('Cannot check status, recreating service...');
-          try {
-            dokku(`auth:frontend:destroy ${FRONTEND_SERVICE} -f`, { quiet: true });
-          } catch {}
-          dokku(`auth:frontend:create ${FRONTEND_SERVICE} --provider authentik`);
-        }
-      } else {
-        throw e;
-      }
+      // Try to destroy via dokku first
+      dokku(`auth:frontend:destroy ${FRONTEND_SERVICE} -f`, { quiet: true, swallowErrors: true });
+    } catch {}
+    // Also forcefully remove the service directory if it exists
+    try {
+      execSync(`sudo rm -rf ${serviceDir}`, { encoding: 'utf-8', stdio: 'pipe' });
+    } catch {}
+    // And clean up any leftover containers
+    for (const suffix of ['', '.worker', '.postgres', '.redis']) {
+      try {
+        execSync(`docker rm -f dokku.auth.frontend.${FRONTEND_SERVICE}${suffix}`, { encoding: 'utf-8', stdio: 'pipe' });
+      } catch {}
     }
+
+    dokku(`auth:frontend:create ${FRONTEND_SERVICE} --provider authentik`);
 
     // Wait for Authentik to be healthy
     console.log('Waiting for Authentik to be ready...');
