@@ -4,7 +4,7 @@
 # Modern open-source identity provider with OIDC/OAuth2/SAML support
 # SC2034 disabled: Variables are used when this script is sourced
 #
-# This provider uses dokku postgres and redis plugins for data storage.
+# This provider manages its own PostgreSQL and Redis containers directly.
 
 # Provider metadata
 PROVIDER_NAME="authentik"
@@ -14,10 +14,19 @@ PROVIDER_IMAGE_VERSION="2024.2"
 PROVIDER_HTTP_PORT="9000"
 PROVIDER_REQUIRED_CONFIG="DOMAIN"
 
-# Get the base name for Authentik resources
-get_authentik_base_name() {
+# Container images for dependencies
+POSTGRES_IMAGE="postgres:15-alpine"
+REDIS_IMAGE="redis:7-alpine"
+
+# Get container names for Authentik resources
+get_authentik_postgres_container() {
   local SERVICE="$1"
-  echo "auth-${SERVICE}"
+  echo "dokku.auth.frontend.${SERVICE}.postgres"
+}
+
+get_authentik_redis_container() {
+  local SERVICE="$1"
+  echo "dokku.auth.frontend.${SERVICE}.redis"
 }
 
 # Create and start the Authentik containers
@@ -26,11 +35,13 @@ provider_create_container() {
   local SERVER_CONTAINER
   SERVER_CONTAINER=$(get_frontend_container_name "$SERVICE")
   local WORKER_CONTAINER="${SERVER_CONTAINER}.worker"
+  local POSTGRES_CONTAINER
+  POSTGRES_CONTAINER=$(get_authentik_postgres_container "$SERVICE")
+  local REDIS_CONTAINER
+  REDIS_CONTAINER=$(get_authentik_redis_container "$SERVICE")
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
   local CONFIG_DIR="$SERVICE_ROOT/config"
   local DATA_DIR="$SERVICE_ROOT/data"
-  local BASE_NAME
-  BASE_NAME=$(get_authentik_base_name "$SERVICE")
 
   # Read or generate configuration
   local DOMAIN SECRET_KEY BOOTSTRAP_PASSWORD BOOTSTRAP_TOKEN
@@ -39,57 +50,83 @@ provider_create_container() {
   BOOTSTRAP_PASSWORD=$(cat "$CONFIG_DIR/BOOTSTRAP_PASSWORD" 2>/dev/null || openssl rand -base64 16 | tr -d '/+=')
   BOOTSTRAP_TOKEN=$(cat "$CONFIG_DIR/BOOTSTRAP_TOKEN" 2>/dev/null || openssl rand -hex 32)
 
+  # Generate postgres credentials
+  local POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
+  POSTGRES_USER=$(cat "$CONFIG_DIR/POSTGRES_USER" 2>/dev/null || echo "authentik")
+  POSTGRES_PASSWORD=$(cat "$CONFIG_DIR/POSTGRES_PASSWORD" 2>/dev/null || openssl rand -base64 24 | tr -d '/+=')
+  POSTGRES_DB=$(cat "$CONFIG_DIR/POSTGRES_DB" 2>/dev/null || echo "authentik")
+
   # Save configuration
-  mkdir -p "$CONFIG_DIR" "$DATA_DIR/media" "$DATA_DIR/templates" "$DATA_DIR/certs"
+  mkdir -p "$CONFIG_DIR" "$DATA_DIR/media" "$DATA_DIR/templates" "$DATA_DIR/certs" "$DATA_DIR/postgres" "$DATA_DIR/redis"
   echo "$DOMAIN" > "$CONFIG_DIR/DOMAIN"
   echo "$SECRET_KEY" > "$CONFIG_DIR/SECRET_KEY"
   echo "$BOOTSTRAP_PASSWORD" > "$CONFIG_DIR/BOOTSTRAP_PASSWORD"
   echo "$BOOTSTRAP_TOKEN" > "$CONFIG_DIR/BOOTSTRAP_TOKEN"
+  echo "$POSTGRES_USER" > "$CONFIG_DIR/POSTGRES_USER"
+  echo "$POSTGRES_PASSWORD" > "$CONFIG_DIR/POSTGRES_PASSWORD"
+  echo "$POSTGRES_DB" > "$CONFIG_DIR/POSTGRES_DB"
   for f in "$CONFIG_DIR"/*; do
     [[ -f "$f" ]] && chmod 600 "$f"
   done
 
-  # Create PostgreSQL database using dokku plugin
-  echo "-----> Creating PostgreSQL database"
-  if ! "$DOKKU_BIN" postgres:exists "$BASE_NAME" 2>/dev/null; then
-    "$DOKKU_BIN" postgres:create "$BASE_NAME" >/dev/null
-  fi
-  local POSTGRES_URL
-  POSTGRES_URL=$("$DOKKU_BIN" postgres:info "$BASE_NAME" --dsn 2>/dev/null)
-  echo "$POSTGRES_URL" > "$CONFIG_DIR/POSTGRES_URL"
+  # Pull required images
+  echo "-----> Pulling PostgreSQL image"
+  docker pull "$POSTGRES_IMAGE" >/dev/null
 
-  # Create Redis instance using dokku plugin
-  echo "-----> Creating Redis instance"
-  if ! "$DOKKU_BIN" redis:exists "$BASE_NAME" 2>/dev/null; then
-    "$DOKKU_BIN" redis:create "$BASE_NAME" >/dev/null
-  fi
-  local REDIS_URL
-  REDIS_URL=$("$DOKKU_BIN" redis:info "$BASE_NAME" --dsn 2>/dev/null)
-  echo "$REDIS_URL" > "$CONFIG_DIR/REDIS_URL"
+  echo "-----> Pulling Redis image"
+  docker pull "$REDIS_IMAGE" >/dev/null
 
-  # Get LDAP settings if linked to a directory
-  local LDAP_ENABLED="false"
-  if [[ -f "$SERVICE_ROOT/DIRECTORY" ]]; then
-    LDAP_ENABLED="true"
-  fi
-
-  # Pull image
-  echo "-----> Pulling $PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
+  echo "-----> Pulling Authentik image"
   docker pull "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION" >/dev/null
 
-  # Common environment variables
+  # Create PostgreSQL container
+  echo "-----> Starting PostgreSQL container"
+  docker run -d \
+    --name "$POSTGRES_CONTAINER" \
+    --restart unless-stopped \
+    --network "$AUTH_NETWORK" \
+    -e "POSTGRES_USER=$POSTGRES_USER" \
+    -e "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
+    -e "POSTGRES_DB=$POSTGRES_DB" \
+    -v "$DATA_DIR/postgres:/var/lib/postgresql/data" \
+    "$POSTGRES_IMAGE" >/dev/null
+
+  # Create Redis container
+  echo "-----> Starting Redis container"
+  docker run -d \
+    --name "$REDIS_CONTAINER" \
+    --restart unless-stopped \
+    --network "$AUTH_NETWORK" \
+    -v "$DATA_DIR/redis:/data" \
+    "$REDIS_IMAGE" >/dev/null
+
+  # Wait for postgres to be ready
+  echo "-----> Waiting for PostgreSQL to be ready"
+  local retries=30
+  while [[ $retries -gt 0 ]]; do
+    if docker exec "$POSTGRES_CONTAINER" pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+    retries=$((retries - 1))
+  done
+  if [[ $retries -eq 0 ]]; then
+    echo "!     PostgreSQL failed to start" >&2
+    return 1
+  fi
+
+  # Common environment variables for Authentik
   local ENV_VARS=(
     -e "AUTHENTIK_SECRET_KEY=$SECRET_KEY"
     -e "AUTHENTIK_BOOTSTRAP_PASSWORD=$BOOTSTRAP_PASSWORD"
     -e "AUTHENTIK_BOOTSTRAP_TOKEN=$BOOTSTRAP_TOKEN"
-    -e "AUTHENTIK_POSTGRESQL__HOST=$(echo "$POSTGRES_URL" | sed -n 's|.*@\([^:/]*\).*|\1|p')"
-    -e "AUTHENTIK_POSTGRESQL__PORT=$(echo "$POSTGRES_URL" | sed -n 's|.*:\([0-9]*\)/.*|\1|p')"
-    -e "AUTHENTIK_POSTGRESQL__USER=$(echo "$POSTGRES_URL" | sed -n 's|postgres://\([^:]*\):.*|\1|p')"
-    -e "AUTHENTIK_POSTGRESQL__PASSWORD=$(echo "$POSTGRES_URL" | sed -n 's|postgres://[^:]*:\([^@]*\)@.*|\1|p')"
-    -e "AUTHENTIK_POSTGRESQL__NAME=$(echo "$POSTGRES_URL" | sed -n 's|.*/\([^?]*\).*|\1|p')"
-    -e "AUTHENTIK_REDIS__HOST=$(echo "$REDIS_URL" | sed -n 's|.*@\([^:/]*\).*|\1|p')"
-    -e "AUTHENTIK_REDIS__PORT=$(echo "$REDIS_URL" | sed -n 's|.*:\([0-9]*\)$|\1|p')"
-    -e "AUTHENTIK_REDIS__PASSWORD=$(echo "$REDIS_URL" | sed -n 's|redis://[^:]*:\([^@]*\)@.*|\1|p' || echo '')"
+    -e "AUTHENTIK_POSTGRESQL__HOST=$POSTGRES_CONTAINER"
+    -e "AUTHENTIK_POSTGRESQL__PORT=5432"
+    -e "AUTHENTIK_POSTGRESQL__USER=$POSTGRES_USER"
+    -e "AUTHENTIK_POSTGRESQL__PASSWORD=$POSTGRES_PASSWORD"
+    -e "AUTHENTIK_POSTGRESQL__NAME=$POSTGRES_DB"
+    -e "AUTHENTIK_REDIS__HOST=$REDIS_CONTAINER"
+    -e "AUTHENTIK_REDIS__PORT=6379"
     -e "AUTHENTIK_ERROR_REPORTING__ENABLED=false"
     -e "AUTHENTIK_DISABLE_UPDATE_CHECK=true"
     -e "AUTHENTIK_DISABLE_STARTUP_ANALYTICS=true"
@@ -178,15 +215,9 @@ provider_validate_config() {
     return 1
   fi
 
-  # Check if dokku postgres plugin is installed
-  if ! "$DOKKU_BIN" plugin:list 2>/dev/null | grep -q postgres; then
-    echo "!     dokku postgres plugin is required" >&2
-    return 1
-  fi
-
-  # Check if dokku redis plugin is installed
-  if ! "$DOKKU_BIN" plugin:list 2>/dev/null | grep -q redis; then
-    echo "!     dokku redis plugin is required" >&2
+  # Check if docker is available
+  if ! command -v docker &>/dev/null; then
+    echo "!     Docker is required" >&2
     return 1
   fi
 
@@ -223,10 +254,12 @@ provider_info() {
   local CONFIG_DIR="$SERVICE_ROOT/config"
   local SERVER_CONTAINER
   SERVER_CONTAINER=$(get_frontend_container_name "$SERVICE")
-  local BASE_NAME
-  BASE_NAME=$(get_authentik_base_name "$SERVICE")
+  local POSTGRES_CONTAINER
+  POSTGRES_CONTAINER=$(get_authentik_postgres_container "$SERVICE")
+  local REDIS_CONTAINER
+  REDIS_CONTAINER=$(get_authentik_redis_container "$SERVICE")
 
-  local DOMAIN DIRECTORY OIDC_ENABLED
+  local DOMAIN DIRECTORY
   DOMAIN=$(cat "$CONFIG_DIR/DOMAIN" 2>/dev/null || echo "(not set)")
   DIRECTORY=$(cat "$SERVICE_ROOT/DIRECTORY" 2>/dev/null || echo "(none)")
 
@@ -234,11 +267,11 @@ provider_info() {
   echo "       Image: $PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
   echo "       Server Container: $SERVER_CONTAINER"
   echo "       Worker Container: ${SERVER_CONTAINER}.worker"
+  echo "       PostgreSQL Container: $POSTGRES_CONTAINER"
+  echo "       Redis Container: $REDIS_CONTAINER"
   echo "       HTTP Port: $PROVIDER_HTTP_PORT"
   echo "       Domain: $DOMAIN"
   echo "       Directory: $DIRECTORY"
-  echo "       PostgreSQL: $BASE_NAME"
-  echo "       Redis: $BASE_NAME"
 }
 
 # Configure the frontend to use a directory service
@@ -401,25 +434,29 @@ provider_destroy() {
   local SERVER_CONTAINER
   SERVER_CONTAINER=$(get_frontend_container_name "$SERVICE")
   local WORKER_CONTAINER="${SERVER_CONTAINER}.worker"
-  local BASE_NAME
-  BASE_NAME=$(get_authentik_base_name "$SERVICE")
+  local POSTGRES_CONTAINER
+  POSTGRES_CONTAINER=$(get_authentik_postgres_container "$SERVICE")
+  local REDIS_CONTAINER
+  REDIS_CONTAINER=$(get_authentik_redis_container "$SERVICE")
 
-  # Stop and remove containers
+  # Stop and remove Authentik containers
   docker stop "$SERVER_CONTAINER" 2>/dev/null || true
   docker rm "$SERVER_CONTAINER" 2>/dev/null || true
   docker stop "$WORKER_CONTAINER" 2>/dev/null || true
   docker rm "$WORKER_CONTAINER" 2>/dev/null || true
 
-  # Destroy PostgreSQL database
-  if "$DOKKU_BIN" postgres:exists "$BASE_NAME" 2>/dev/null; then
-    echo "       Destroying PostgreSQL database..."
-    "$DOKKU_BIN" postgres:destroy "$BASE_NAME" -f >/dev/null 2>&1 || true
+  # Stop and remove PostgreSQL container
+  if docker ps -a -q -f "name=^${POSTGRES_CONTAINER}$" | grep -q .; then
+    echo "       Destroying PostgreSQL container..."
+    docker stop "$POSTGRES_CONTAINER" 2>/dev/null || true
+    docker rm "$POSTGRES_CONTAINER" 2>/dev/null || true
   fi
 
-  # Destroy Redis instance
-  if "$DOKKU_BIN" redis:exists "$BASE_NAME" 2>/dev/null; then
-    echo "       Destroying Redis instance..."
-    "$DOKKU_BIN" redis:destroy "$BASE_NAME" -f >/dev/null 2>&1 || true
+  # Stop and remove Redis container
+  if docker ps -a -q -f "name=^${REDIS_CONTAINER}$" | grep -q .; then
+    echo "       Destroying Redis container..."
+    docker stop "$REDIS_CONTAINER" 2>/dev/null || true
+    docker rm "$REDIS_CONTAINER" 2>/dev/null || true
   fi
 }
 
@@ -429,13 +466,25 @@ provider_logs() {
   shift
   local SERVER_CONTAINER
   SERVER_CONTAINER=$(get_frontend_container_name "$SERVICE")
+  local POSTGRES_CONTAINER
+  POSTGRES_CONTAINER=$(get_authentik_postgres_container "$SERVICE")
+  local REDIS_CONTAINER
+  REDIS_CONTAINER=$(get_authentik_redis_container "$SERVICE")
 
   echo "=== Server Logs ==="
-  docker logs "$@" "$SERVER_CONTAINER"
+  docker logs "$@" "$SERVER_CONTAINER" 2>&1 || true
 
   echo ""
   echo "=== Worker Logs ==="
-  docker logs "$@" "${SERVER_CONTAINER}.worker"
+  docker logs "$@" "${SERVER_CONTAINER}.worker" 2>&1 || true
+
+  echo ""
+  echo "=== PostgreSQL Logs ==="
+  docker logs "$@" "$POSTGRES_CONTAINER" 2>&1 || true
+
+  echo ""
+  echo "=== Redis Logs ==="
+  docker logs "$@" "$REDIS_CONTAINER" 2>&1 || true
 }
 
 # Check if container is running
@@ -443,8 +492,15 @@ provider_is_running() {
   local SERVICE="$1"
   local SERVER_CONTAINER
   SERVER_CONTAINER=$(get_frontend_container_name "$SERVICE")
+  local POSTGRES_CONTAINER
+  POSTGRES_CONTAINER=$(get_authentik_postgres_container "$SERVICE")
+  local REDIS_CONTAINER
+  REDIS_CONTAINER=$(get_authentik_redis_container "$SERVICE")
 
-  docker ps -q -f "name=^${SERVER_CONTAINER}$" | grep -q .
+  # Check all required containers are running
+  docker ps -q -f "name=^${SERVER_CONTAINER}$" | grep -q . && \
+  docker ps -q -f "name=^${POSTGRES_CONTAINER}$" | grep -q . && \
+  docker ps -q -f "name=^${REDIS_CONTAINER}$" | grep -q .
 }
 
 # Apply configuration changes (restart containers)

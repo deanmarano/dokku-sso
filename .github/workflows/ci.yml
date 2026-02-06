@@ -596,12 +596,6 @@ jobs:
           sudo DOKKU_TAG=v0.35.15 bash bootstrap.sh
           dokku version
 
-      - name: Install dokku postgres plugin
-        run: sudo dokku plugin:install https://github.com/dokku/dokku-postgres.git postgres
-
-      - name: Install dokku redis plugin
-        run: sudo dokku plugin:install https://github.com/dokku/dokku-redis.git redis
-
       - name: Install plugin
         run: |
           sudo mkdir -p /var/lib/dokku/plugins/available/auth
@@ -667,12 +661,6 @@ jobs:
           sudo DOKKU_TAG=v0.35.15 bash bootstrap.sh
           dokku version
 
-      - name: Install dokku postgres plugin
-        run: sudo dokku plugin:install https://github.com/dokku/dokku-postgres.git postgres
-
-      - name: Install dokku redis plugin
-        run: sudo dokku plugin:install https://github.com/dokku/dokku-redis.git redis
-
       - name: Install plugin
         run: |
           sudo mkdir -p /var/lib/dokku/plugins/available/auth
@@ -733,12 +721,6 @@ jobs:
           wget -NP . https://dokku.com/install/v0.35.15/bootstrap.sh
           sudo DOKKU_TAG=v0.35.15 bash bootstrap.sh
           dokku version
-
-      - name: Install dokku postgres plugin
-        run: sudo dokku plugin:install https://github.com/dokku/dokku-postgres.git postgres
-
-      - name: Install dokku redis plugin
-        run: sudo dokku plugin:install https://github.com/dokku/dokku-redis.git redis
 
       - name: Install plugin
         run: |
