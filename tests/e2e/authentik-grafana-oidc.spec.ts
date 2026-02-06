@@ -2,11 +2,9 @@ import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import {
-  USE_SUDO,
   dokku,
   getContainerIp,
   getLdapCredentials,
-  createLdapUser,
   waitForHealthy,
   waitForHttps,
 } from './helpers';
@@ -48,21 +46,8 @@ const AUTHENTIK_HTTPS_PORT = 9443;
 const GRAFANA_HTTPS_PORT = 9444;
 
 let AUTHENTIK_INTERNAL_IP: string;
-let ADMIN_PASSWORD: string;
 let BOOTSTRAP_TOKEN: string;
 let AUTH_NETWORK: string;
-
-// Check if dokku postgres and redis plugins are available
-function hasRequiredPlugins(): boolean {
-  try {
-    const cmd = USE_SUDO ? 'sudo dokku plugin:list' : 'dokku plugin:list';
-    const plugins = execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-    return plugins.includes('postgres') && plugins.includes('redis');
-  } catch (e: any) {
-    console.log('Plugin check failed:', e.message);
-    return false;
-  }
-}
 
 // Generate self-signed certificates
 function generateCerts(): void {
@@ -80,57 +65,11 @@ function generateCerts(): void {
 
 // Get Authentik bootstrap credentials
 function getAuthentikCredentials(serviceName: string): { password: string; token: string } {
-  const output = dokku(`auth:frontend:info ${serviceName}`);
   // Read from config files directly
   const configDir = `/var/lib/dokku/services/auth/frontend/${serviceName}/config`;
   const password = execSync(`sudo cat ${configDir}/BOOTSTRAP_PASSWORD`, { encoding: 'utf-8' }).trim();
   const token = execSync(`sudo cat ${configDir}/BOOTSTRAP_TOKEN`, { encoding: 'utf-8' }).trim();
   return { password, token };
-}
-
-// Configure Authentik via API - create LDAP source
-async function configureAuthentikLdapSource(
-  containerName: string,
-  token: string,
-  ldapHost: string,
-  baseDn: string,
-  bindDn: string,
-  bindPassword: string
-): Promise<void> {
-  console.log('Configuring Authentik LDAP source via API...');
-
-  // Create LDAP source - Authentik will sync users from LLDAP
-  const ldapSourcePayload = JSON.stringify({
-    name: 'LLDAP',
-    slug: 'lldap',
-    enabled: true,
-    server_uri: `ldap://${ldapHost}:3890`,
-    bind_cn: bindDn,
-    bind_password: bindPassword,
-    base_dn: baseDn,
-    additional_user_dn: 'ou=people',
-    additional_group_dn: 'ou=groups',
-    user_object_filter: '(objectClass=person)',
-    group_object_filter: '(objectClass=groupOfUniqueNames)',
-    sync_users: true,
-    sync_groups: true,
-    sync_parent_group: null,
-  });
-
-  try {
-    execSync(
-      `docker exec ${containerName} curl -sf -X POST ` +
-        `'http://localhost:9000/api/v3/sources/ldap/' ` +
-        `-H 'Authorization: Bearer ${token}' ` +
-        `-H 'Content-Type: application/json' ` +
-        `-d '${ldapSourcePayload}'`,
-      { encoding: 'utf-8', timeout: 30000 }
-    );
-    console.log('LDAP source created');
-  } catch (e: any) {
-    // May already exist, that's OK
-    console.log('LDAP source creation result:', e.message?.substring(0, 200));
-  }
 }
 
 // Configure Authentik via API - create OAuth2 provider and application
@@ -312,12 +251,6 @@ test.describe('Authentik + Grafana OIDC Browser Flow', () => {
   test.beforeAll(async () => {
     console.log('=== Setting up Authentik + Grafana OIDC test ===');
 
-    // Check for required plugins
-    if (!hasRequiredPlugins()) {
-      console.log('Required plugins (postgres, redis) not installed - tests will skip');
-      return;
-    }
-
     // Generate self-signed certificates
     generateCerts();
 
@@ -335,9 +268,6 @@ test.describe('Authentik + Grafana OIDC Browser Flow', () => {
     if (!ldapHealthy) {
       throw new Error('LLDAP service not healthy');
     }
-
-    const ldapCreds = getLdapCredentials(DIRECTORY_SERVICE);
-    const ldapContainerIp = getContainerIp(`dokku.auth.directory.${DIRECTORY_SERVICE}`);
 
     // Determine the auth network
     AUTH_NETWORK = execSync(
@@ -374,22 +304,10 @@ test.describe('Authentik + Grafana OIDC Browser Flow', () => {
 
     // Get bootstrap credentials
     const akCreds = getAuthentikCredentials(FRONTEND_SERVICE);
-    ADMIN_PASSWORD = akCreds.password;
     BOOTSTRAP_TOKEN = akCreds.token;
     console.log('Got Authentik bootstrap credentials');
 
     // 3. Configure Authentik via API
-    // Configure LDAP source (optional - for user sync)
-    await configureAuthentikLdapSource(
-      authentikContainerName,
-      BOOTSTRAP_TOKEN,
-      ldapContainerIp,
-      ldapCreds.BASE_DN,
-      `uid=admin,ou=people,${ldapCreds.BASE_DN}`,
-      ldapCreds.ADMIN_PASSWORD
-    );
-
-    // Create OAuth2 provider and application
     const redirectUri = `https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/login/generic_oauth`;
     await configureAuthentikOAuth2(
       authentikContainerName,
@@ -574,42 +492,29 @@ http {
   });
 
   test('OIDC browser login flow works end-to-end', async ({ page }) => {
-    test.skip(!hasRequiredPlugins(), 'Required plugins not installed');
-
-    // ===== Test 1: Authentik OIDC discovery =====
-    console.log('Test 1: Checking OIDC discovery endpoint...');
-    const discoveryResponse = await page.request.get(
-      `https://${AUTH_DOMAIN}:${AUTHENTIK_HTTPS_PORT}/application/o/grafana/.well-known/openid-configuration`
-    );
-
-    // Discovery might not exist for our app, check generic endpoint
-    if (!discoveryResponse.ok()) {
-      console.log('App-specific discovery not found, checking generic endpoint...');
-    }
-
-    // ===== Test 2: Full OIDC browser login flow =====
-    console.log('Test 2: Full OIDC browser login flow');
+    // ===== Test 1: Full OIDC browser login flow =====
+    console.log('Test: Full OIDC browser login flow');
 
     await page.context().clearCookies();
 
     // Step 1: Navigate to Grafana login page
-    console.log('Step 2.1: Navigating to Grafana login...');
+    console.log('Step 1: Navigating to Grafana login...');
     await page.goto(`https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/login`);
 
     // Step 2: Click "Sign in with Authentik" button
-    console.log('Step 2.2: Looking for Authentik OAuth button...');
+    console.log('Step 2: Looking for Authentik OAuth button...');
     const oauthLink = page.locator('a[href*="login/generic_oauth"]');
     await expect(oauthLink).toBeVisible({ timeout: 15000 });
     await page.screenshot({ path: 'test-results/authentik-grafana-login.png' }).catch(() => {});
     await oauthLink.click();
 
     // Step 3: Should be redirected to Authentik login page
-    console.log('Step 2.3: Waiting for redirect to Authentik...');
+    console.log('Step 3: Waiting for redirect to Authentik...');
     await page.waitForURL(new RegExp(AUTH_DOMAIN), { timeout: 30000 });
     await page.screenshot({ path: 'test-results/authentik-login-page.png' }).catch(() => {});
 
     // Authentik login form
-    console.log('Step 2.4: Looking for Authentik login form...');
+    console.log('Step 4: Looking for Authentik login form...');
     const usernameInput = page.locator('input[name="uidField"], input[name="uid-field"], input[autocomplete="username"]').first();
     const passwordInput = page.locator('input[name="password"], input[type="password"]').first();
 
@@ -617,17 +522,17 @@ http {
     await expect(passwordInput).toBeVisible({ timeout: 15000 });
 
     // Step 4: Fill credentials
-    console.log('Step 2.5: Filling credentials...');
+    console.log('Step 5: Filling credentials...');
     await usernameInput.fill(TEST_USER);
     await passwordInput.fill(TEST_PASSWORD);
 
     // Step 5: Submit
-    console.log('Step 2.6: Submitting login form...');
+    console.log('Step 6: Submitting login form...');
     const submitButton = page.locator('button[type="submit"]').first();
     await submitButton.click();
 
     // Step 6: Wait for redirect or consent
-    console.log('Step 2.7: Waiting for redirect or consent...');
+    console.log('Step 7: Waiting for redirect or consent...');
     await page.waitForTimeout(3000);
     await page.screenshot({ path: 'test-results/authentik-after-login.png' }).catch(() => {});
 
@@ -658,13 +563,13 @@ http {
     }
 
     // Wait for redirect to Grafana
-    console.log('Step 2.8: Waiting for redirect to Grafana...');
+    console.log('Step 8: Waiting for redirect to Grafana...');
     await page.waitForURL(new RegExp(APP_DOMAIN), { timeout: 30000 });
     await page.waitForLoadState('networkidle');
     await page.screenshot({ path: 'test-results/authentik-grafana-logged-in.png' }).catch(() => {});
 
     // Step 7: Verify logged in
-    console.log('Step 2.9: Verifying logged-in state...');
+    console.log('Step 9: Verifying logged-in state...');
     const userResponse = await page.request.get(
       `https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/api/user`
     );

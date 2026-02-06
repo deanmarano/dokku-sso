@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
-import { USE_SUDO, dokku, waitForHealthy } from './helpers';
+import { dokku, waitForHealthy } from './helpers';
 
 /**
  * Authentik Frontend Provider E2E Test
@@ -17,27 +17,9 @@ import { USE_SUDO, dokku, waitForHealthy } from './helpers';
 const SERVICE_NAME = 'authentik-e2e-test';
 const DIRECTORY_SERVICE = 'authentik-dir-test';
 
-// Check if dokku postgres and redis plugins are available
-function hasRequiredPlugins(): boolean {
-  try {
-    const cmd = USE_SUDO ? 'sudo dokku plugin:list' : 'dokku plugin:list';
-    const plugins = execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-    return plugins.includes('postgres') && plugins.includes('redis');
-  } catch (e: any) {
-    console.log('Plugin check failed:', e.message);
-    return false;
-  }
-}
-
 test.describe('Authentik Frontend Provider', () => {
   test.beforeAll(async () => {
     console.log('=== Setting up Authentik test ===');
-
-    // Check for required plugins
-    if (!hasRequiredPlugins()) {
-      console.log('Required plugins (postgres, redis) not installed - tests will skip');
-      return;
-    }
 
     // Create directory service first (Authentik needs LDAP backend)
     console.log('Creating directory service...');
@@ -94,19 +76,16 @@ test.describe('Authentik Frontend Provider', () => {
   });
 
   test('service status shows healthy', async () => {
-    test.skip(!hasRequiredPlugins(), 'Required plugins not installed');
     const status = dokku(`auth:frontend:status ${SERVICE_NAME}`);
     expect(status.toLowerCase()).toMatch(/healthy|running/);
   });
 
   test('service info shows Authentik provider', async () => {
-    test.skip(!hasRequiredPlugins(), 'Required plugins not installed');
     const info = dokku(`auth:frontend:info ${SERVICE_NAME}`);
     expect(info.toLowerCase()).toContain('authentik');
   });
 
   test('server container is running', async () => {
-    test.skip(!hasRequiredPlugins(), 'Required plugins not installed');
     const serverContainer = `dokku.auth.frontend.${SERVICE_NAME}`;
     const result = execSync(
       `docker ps --format '{{.Names}}' | grep -q "^${serverContainer}$" && echo "running"`,
@@ -116,7 +95,6 @@ test.describe('Authentik Frontend Provider', () => {
   });
 
   test('worker container is running', async () => {
-    test.skip(!hasRequiredPlugins(), 'Required plugins not installed');
     const workerContainer = `dokku.auth.frontend.${SERVICE_NAME}.worker`;
     const result = execSync(
       `docker ps --format '{{.Names}}' | grep -q "^${workerContainer}$" && echo "running"`,
@@ -126,7 +104,6 @@ test.describe('Authentik Frontend Provider', () => {
   });
 
   test('health endpoint responds', async () => {
-    test.skip(!hasRequiredPlugins(), 'Required plugins not installed');
     const serverContainer = `dokku.auth.frontend.${SERVICE_NAME}`;
 
     // Authentik health endpoint
@@ -142,14 +119,12 @@ test.describe('Authentik Frontend Provider', () => {
   });
 
   test('info shows PostgreSQL and Redis services', async () => {
-    test.skip(!hasRequiredPlugins(), 'Required plugins not installed');
     const info = dokku(`auth:frontend:info ${SERVICE_NAME}`);
     expect(info.toLowerCase()).toContain('postgresql');
     expect(info.toLowerCase()).toContain('redis');
   });
 
   test('can link to directory service', async () => {
-    test.skip(!hasRequiredPlugins(), 'Required plugins not installed');
     // Link to directory (this should output LDAP config instructions)
     const result = dokku(`auth:frontend:use-directory ${SERVICE_NAME} ${DIRECTORY_SERVICE}`);
     expect(result.toLowerCase()).toContain('ldap');

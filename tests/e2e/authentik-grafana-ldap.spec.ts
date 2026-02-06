@@ -2,7 +2,6 @@ import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import {
-  USE_SUDO,
   dokku,
   getContainerIp,
   getLdapCredentials,
@@ -36,27 +35,9 @@ const GRAFANA_CONTAINER = 'authentik-grafana-ldap-test';
 let LDAP_CONTAINER_IP: string;
 let AUTH_NETWORK: string;
 
-// Check if dokku postgres and redis plugins are available
-function hasRequiredPlugins(): boolean {
-  try {
-    const cmd = USE_SUDO ? 'sudo dokku plugin:list' : 'dokku plugin:list';
-    const plugins = execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-    return plugins.includes('postgres') && plugins.includes('redis');
-  } catch (e: any) {
-    console.log('Plugin check failed:', e.message);
-    return false;
-  }
-}
-
 test.describe('Authentik + Grafana LDAP Integration', () => {
   test.beforeAll(async () => {
     console.log('=== Setting up Authentik + Grafana LDAP test ===');
-
-    // Check for required plugins
-    if (!hasRequiredPlugins()) {
-      console.log('Required plugins (postgres, redis) not installed - tests will skip');
-      return;
-    }
 
     // 1. Create LLDAP directory service
     console.log('Creating LLDAP directory service...');
@@ -213,7 +194,6 @@ name = "cn"
   });
 
   test('Grafana health check returns ok', async () => {
-    test.skip(!hasRequiredPlugins(), 'Required plugins not installed');
     const result = execSync(
       `docker exec ${GRAFANA_CONTAINER} curl -sf http://localhost:3000/api/health`,
       { encoding: 'utf-8' }
@@ -223,13 +203,11 @@ name = "cn"
   });
 
   test('Authentik is running alongside LLDAP', async () => {
-    test.skip(!hasRequiredPlugins(), 'Required plugins not installed');
     const status = dokku(`auth:frontend:status ${FRONTEND_SERVICE}`);
     expect(status.toLowerCase()).toMatch(/healthy|running/);
   });
 
   test('LDAP login via API returns user info', async () => {
-    test.skip(!hasRequiredPlugins(), 'Required plugins not installed');
     const result = execSync(
       `docker exec ${GRAFANA_CONTAINER} curl -sf -u ${TEST_USER}:${TEST_PASSWORD} http://localhost:3000/api/user`,
       { encoding: 'utf-8' }
@@ -240,7 +218,6 @@ name = "cn"
   });
 
   test('LDAP login returns email', async () => {
-    test.skip(!hasRequiredPlugins(), 'Required plugins not installed');
     const result = execSync(
       `docker exec ${GRAFANA_CONTAINER} curl -sf -u ${TEST_USER}:${TEST_PASSWORD} http://localhost:3000/api/user`,
       { encoding: 'utf-8' }
@@ -250,7 +227,6 @@ name = "cn"
   });
 
   test('Bad password returns 401', async () => {
-    test.skip(!hasRequiredPlugins(), 'Required plugins not installed');
     const statusCode = execSync(
       `docker exec ${GRAFANA_CONTAINER} curl -s -o /dev/null -w "%{http_code}" ` +
         `-u ${TEST_USER}:wrongpassword http://localhost:3000/api/user`,
@@ -261,7 +237,6 @@ name = "cn"
   });
 
   test('LDAP status check succeeds', async () => {
-    test.skip(!hasRequiredPlugins(), 'Required plugins not installed');
     const result = execSync(
       `docker exec ${GRAFANA_CONTAINER} curl -sf -u admin:admin http://localhost:3000/api/admin/ldap/status`,
       { encoding: 'utf-8' }
