@@ -568,6 +568,9 @@ http {
       'GF_AUTH_GENERIC_OAUTH_TLS_SKIP_VERIFY_INSECURE=true',
       'GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP=true',
       'GF_AUTH_ANONYMOUS_ENABLED=false',
+      // Enable debug logging to see OIDC errors
+      'GF_LOG_LEVEL=debug',
+      'GF_LOG_FILTERS=oauth:debug auth:debug',
     ];
 
     const envArgs = grafanaEnv.map((e) => `-e "${e}"`).join(' ');
@@ -853,6 +856,58 @@ http {
     // Check we're not on the login page anymore
     const finalUrl = page.url();
     console.log(`Final URL: ${finalUrl}`);
+
+    // If we're still on the login page, get debug info
+    if (finalUrl.includes('/login')) {
+      console.log('=== OIDC FLOW FAILED - Collecting debug info ===');
+
+      // Get Grafana logs to see why OIDC failed
+      try {
+        const grafanaLogs = execSync(`docker logs ${GRAFANA_CONTAINER} 2>&1 | tail -100`, {
+          encoding: 'utf-8',
+        });
+        console.log('=== Grafana logs ===');
+        console.log(grafanaLogs);
+      } catch (e: any) {
+        console.log('Could not get Grafana logs:', e.message);
+      }
+
+      // Get Authentik logs
+      try {
+        const authentikLogs = execSync(
+          `docker logs dokku.auth.frontend.${FRONTEND_SERVICE} 2>&1 | tail -50`,
+          { encoding: 'utf-8' }
+        );
+        console.log('=== Authentik logs ===');
+        console.log(authentikLogs);
+      } catch (e: any) {
+        console.log('Could not get Authentik logs:', e.message);
+      }
+
+      // Get nginx logs
+      try {
+        const nginxLogs = execSync(`docker logs ${NGINX_CONTAINER} 2>&1 | tail -30`, {
+          encoding: 'utf-8',
+        });
+        console.log('=== nginx logs ===');
+        console.log(nginxLogs);
+      } catch (e: any) {
+        console.log('Could not get nginx logs:', e.message);
+      }
+
+      // Test connectivity from Grafana to Authentik
+      console.log('=== Testing connectivity from Grafana to Authentik ===');
+      try {
+        const curlTest = execSync(
+          `docker exec ${GRAFANA_CONTAINER} curl -v -k https://${AUTH_DOMAIN}:${AUTHENTIK_HTTPS_PORT}/-/health/ready/ 2>&1 || true`,
+          { encoding: 'utf-8', timeout: 10000 }
+        );
+        console.log('Curl test result:', curlTest);
+      } catch (e: any) {
+        console.log('Curl test error:', e.message);
+      }
+    }
+
     expect(finalUrl).not.toContain('/login');
 
     // Verify we can access the user API endpoint (proves we're authenticated)
