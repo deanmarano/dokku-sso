@@ -723,46 +723,80 @@ http {
       }
 
       // Try to find and click the consent button
-      // Authentik consent page has a submit button in the form
-      const consentSelectors = [
-        'button[type="submit"]:visible',
-        '.pf-c-button.pf-m-primary:visible',
-        'button:has-text("Continue"):visible',
-        'button:has-text("Allow"):visible',
-        'ak-stage-consent button',
-      ];
-
+      // Authentik uses web components, so we need to handle shadow DOM
+      const urlBefore = page.url();
       let clicked = false;
-      for (const selector of consentSelectors) {
-        try {
-          const btn = page.locator(selector).first();
-          if (await btn.isVisible({ timeout: 2000 })) {
-            console.log(`Clicking consent button: ${selector}`);
-            const urlBefore = page.url();
-            await btn.click();
 
-            // Wait for URL to change (Authentik uses SPA navigation)
-            try {
-              await page.waitForFunction(
-                (urlBefore) => window.location.href !== urlBefore,
-                urlBefore,
-                { timeout: 15000 }
-              );
-              console.log('URL changed after consent click');
-              clicked = true;
-              break;
-            } catch {
-              // URL didn't change, try waiting a bit longer
-              await page.waitForTimeout(3000);
-              if (page.url() !== urlBefore) {
-                console.log('URL changed after waiting');
-                clicked = true;
-                break;
-              }
+      // First, try using JavaScript to find and click the submit button
+      // This works better with shadow DOM components
+      try {
+        console.log('Trying JavaScript click on submit button...');
+        clicked = await page.evaluate(() => {
+          // Try finding the button in the regular DOM first
+          let btn = document.querySelector('button[type="submit"]') as HTMLButtonElement;
+          if (btn) {
+            btn.click();
+            return true;
+          }
+
+          // Try finding in shadow roots (Authentik uses web components)
+          const akStage = document.querySelector('ak-stage-consent');
+          if (akStage && akStage.shadowRoot) {
+            btn = akStage.shadowRoot.querySelector('button[type="submit"]') as HTMLButtonElement;
+            if (btn) {
+              btn.click();
+              return true;
             }
           }
-        } catch (e: any) {
-          console.log(`Selector ${selector} error: ${e.message}`);
+
+          // Try finding any visible submit button
+          const buttons = document.querySelectorAll('button');
+          for (const b of buttons) {
+            if (b.textContent?.toLowerCase().includes('continue') ||
+                b.textContent?.toLowerCase().includes('allow') ||
+                b.type === 'submit') {
+              (b as HTMLButtonElement).click();
+              return true;
+            }
+          }
+          return false;
+        });
+        console.log(`JavaScript click result: ${clicked}`);
+      } catch (e: any) {
+        console.log('JavaScript click error:', e.message);
+      }
+
+      // If JavaScript click didn't work, try Playwright click
+      if (!clicked) {
+        const consentSelectors = [
+          'button[type="submit"]',
+          '.pf-c-button.pf-m-primary',
+          'button:has-text("Continue")',
+          'button:has-text("Allow")',
+        ];
+
+        for (const selector of consentSelectors) {
+          try {
+            const btn = page.locator(selector).first();
+            if (await btn.isVisible({ timeout: 2000 })) {
+              console.log(`Clicking consent button: ${selector}`);
+              await btn.click({ force: true });
+              clicked = true;
+              break;
+            }
+          } catch (e: any) {
+            console.log(`Selector ${selector} error: ${e.message}`);
+          }
+        }
+      }
+
+      // Wait for navigation or URL change
+      if (clicked) {
+        try {
+          await page.waitForURL((url) => !url.href.includes('consent'), { timeout: 15000 });
+          console.log('URL changed after consent click');
+        } catch {
+          console.log('URL did not change after consent click');
         }
       }
 
