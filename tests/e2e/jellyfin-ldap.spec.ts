@@ -107,17 +107,31 @@ test.describe('Jellyfin LDAP Integration', () => {
       console.log('Plugin directory contents:', files);
     } catch {}
 
-    // Create plugin meta.json in parent directory (required for Jellyfin to recognize the plugin)
-    const pluginMeta = {
-      guid: '958aad66-3571-4f06-b21d-97a497be2005',
-      name: 'LDAP Authentication',
-      version: pluginVersion,
-      status: 'Active',
-    };
-    fs.writeFileSync(
-      `${jellyfinConfigDir}/plugins/LDAP Authentication/meta.json`,
-      JSON.stringify(pluginMeta, null, 2)
-    );
+    // The zip file includes a meta.json - copy it to the parent directory
+    // (Jellyfin looks for meta.json in /plugins/<name>/meta.json, not in version subdir)
+    try {
+      execSync(`cp "${pluginDir}/meta.json" "${jellyfinConfigDir}/plugins/LDAP Authentication/meta.json"`, {
+        encoding: 'utf-8',
+      });
+      console.log('Copied meta.json to parent directory');
+
+      // Show the meta.json content
+      const metaContent = fs.readFileSync(`${jellyfinConfigDir}/plugins/LDAP Authentication/meta.json`, 'utf-8');
+      console.log('meta.json content:', metaContent);
+    } catch (e) {
+      console.log('Error copying meta.json:', e);
+      // Fallback: create our own meta.json
+      const pluginMeta = {
+        guid: '958aad66-3571-4f06-b21d-97a497be2005',
+        name: 'LDAP Authentication',
+        version: pluginVersion,
+        status: 'Active',
+      };
+      fs.writeFileSync(
+        `${jellyfinConfigDir}/plugins/LDAP Authentication/meta.json`,
+        JSON.stringify(pluginMeta, null, 2)
+      );
+    }
 
     // LDAP plugin configuration XML
     const ldapPluginConfig = `<?xml version="1.0" encoding="utf-8"?>
@@ -257,13 +271,42 @@ test.describe('Jellyfin LDAP Integration', () => {
     // Give it a moment for plugins to fully initialize
     await new Promise((r) => setTimeout(r, 5000));
 
-    // Verify LDAP plugin is loaded
+    // Debug: Check plugin directory structure inside container
+    try {
+      const pluginDir = execSync(
+        `docker exec ${JELLYFIN_CONTAINER} ls -laR /config/plugins/ 2>/dev/null || echo "No plugins directory"`,
+        { encoding: 'utf-8' }
+      );
+      console.log('Container plugin directory structure:', pluginDir);
+    } catch (e) {
+      console.log('Could not list plugins dir:', e);
+    }
+
+    // Debug: Check meta.json content
+    try {
+      const metaJson = execSync(
+        `docker exec ${JELLYFIN_CONTAINER} cat "/config/plugins/LDAP Authentication/meta.json" 2>/dev/null || echo "No meta.json"`,
+        { encoding: 'utf-8' }
+      );
+      console.log('meta.json content:', metaJson);
+    } catch {}
+
+    // Debug: Check for plugin loading errors in logs
+    try {
+      const logs = execSync(
+        `docker logs ${JELLYFIN_CONTAINER} 2>&1 | grep -i -E "(plugin|ldap|error|warn)" | tail -20 || true`,
+        { encoding: 'utf-8' }
+      );
+      console.log('Plugin-related logs:', logs);
+    } catch {}
+
+    // Verify LDAP plugin is loaded via API
     try {
       const plugins = execSync(
         `docker exec ${JELLYFIN_CONTAINER} curl -s http://localhost:8096/Plugins`,
         { encoding: 'utf-8' }
       );
-      console.log('Loaded plugins:', plugins);
+      console.log('Loaded plugins API:', plugins);
     } catch {}
 
     console.log('=== Setup complete ===');
