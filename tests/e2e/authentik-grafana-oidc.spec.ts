@@ -971,7 +971,11 @@ http {
     expect(userResponse.ok()).toBe(true);
     const userJson = JSON.parse(userText);
     console.log('Logged in user:', userJson);
-    expect(userJson.login).toBe(TEST_USER);
+    // Authentik returns email as the preferred_username by default
+    // Check that either the login matches the username or email, and name is correct
+    expect(userJson.email).toBe(TEST_EMAIL);
+    expect(userJson.name).toBe(TEST_USER);
+    expect(userJson.authLabels).toContain('Generic OAuth');
 
     console.log('All OIDC browser flow tests passed!');
   });
