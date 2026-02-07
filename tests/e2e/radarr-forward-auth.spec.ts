@@ -471,7 +471,10 @@ http {
     // 5. Should redirect back to Radarr
     console.log('Waiting for Radarr redirect...');
     await page.waitForURL((url) => url.hostname === APP_DOMAIN, { timeout: 30000 });
-    await page.waitForLoadState('networkidle');
+    // Use domcontentloaded instead of networkidle - Radarr is an SPA that keeps making requests
+    await page.waitForLoadState('domcontentloaded', { timeout: 15000 });
+    // Give Radarr a moment to render its UI
+    await page.waitForTimeout(3000);
     await page.screenshot({ path: 'test-results/radarr-logged-in.png' }).catch(() => {});
 
     // 6. Verify we can see Radarr UI

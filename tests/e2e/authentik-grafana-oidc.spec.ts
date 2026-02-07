@@ -415,14 +415,19 @@ test.describe('Authentik + Grafana OIDC Browser Flow', () => {
     } catch {}
 
     // Create nginx config
+    // IMPORTANT: nginx must listen on the same ports that are mapped to the host (9443, 9444)
+    // so that containers inside the network can reach it on the same ports as the host.
+    // Otherwise Grafana's token exchange would fail because it tries to connect to 9443
+    // but nginx would only be listening on 443.
     const nginxConfig = `
 events { worker_connections 1024; }
 http {
     resolver 127.0.0.11 valid=10s;
 
-    # Authentik HTTPS
+    # Authentik HTTPS - listen on both 443 (for port mapping) and 9443 (for internal containers)
     server {
         listen 443 ssl;
+        listen ${AUTHENTIK_HTTPS_PORT} ssl;
         server_name ${AUTH_DOMAIN};
         ssl_certificate /etc/nginx/certs/server.crt;
         ssl_certificate_key /etc/nginx/certs/server.key;
@@ -437,9 +442,10 @@ http {
             proxy_busy_buffers_size 256k;
         }
     }
-    # Grafana HTTPS
+    # Grafana HTTPS - listen on both 3443 (for port mapping) and 9444 (for internal containers)
     server {
         listen 3443 ssl;
+        listen ${GRAFANA_HTTPS_PORT} ssl;
         server_name ${APP_DOMAIN};
         ssl_certificate /etc/nginx/certs/server.crt;
         ssl_certificate_key /etc/nginx/certs/server.key;
@@ -458,8 +464,8 @@ http {
     execSync(
       `docker run -d --name ${NGINX_CONTAINER} ` +
         `--network ${AUTH_NETWORK} ` +
-        `-p ${AUTHENTIK_HTTPS_PORT}:443 ` +
-        `-p ${GRAFANA_HTTPS_PORT}:3443 ` +
+        `-p ${AUTHENTIK_HTTPS_PORT}:${AUTHENTIK_HTTPS_PORT} ` +
+        `-p ${GRAFANA_HTTPS_PORT}:${GRAFANA_HTTPS_PORT} ` +
         `-v /tmp/authentik-grafana-nginx.conf:/etc/nginx/nginx.conf:ro ` +
         `-v /tmp/authentik-grafana-certs:/etc/nginx/certs:ro ` +
         `nginx:alpine`,
@@ -646,7 +652,7 @@ http {
     // ===== Test 3: Grafana login page shows OIDC option =====
     console.log('Test 3: Verifying Grafana login page shows OIDC option...');
     await page.goto(`https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/login`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     // Check that OAuth login option is shown (the "Sign in with Authentik" button)
     const oauthButton = page.locator('a[href*="login/generic_oauth"]');
@@ -662,7 +668,8 @@ http {
     // Step 1: Navigate to Grafana login and click OIDC button
     console.log('Step 4.1: Navigating to Grafana login...');
     await page.goto(`https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/login`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(1000); // Give page a moment to render
 
     // Click "Sign in with Authentik"
     console.log('Step 4.2: Clicking OIDC login button...');
@@ -839,7 +846,8 @@ http {
 
     // Step 7: Verify we're logged in to Grafana
     console.log('Step 4.9: Verifying Grafana shows logged-in user...');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(2000); // Give Grafana time to process the OAuth callback
     await page.screenshot({ path: 'test-results/grafana-logged-in.png' }).catch(() => {});
 
     // Check we're not on the login page anymore

@@ -6,6 +6,7 @@ import {
   getLdapCredentials,
   createLdapUser,
   waitForHealthy,
+  getContainerIp,
 } from './helpers';
 
 /**
@@ -25,6 +26,7 @@ const JELLYFIN_CONTAINER = 'jellyfin-ldap-test';
 const LDAP_CONTAINER_NAME = `dokku.auth.directory.${SERVICE_NAME}`;
 
 let AUTH_NETWORK: string;
+let LDAP_CONTAINER_IP: string;
 
 // Test user credentials
 const TEST_USER = 'jellyfinuser';
@@ -56,6 +58,10 @@ test.describe('Jellyfin LDAP Integration', () => {
     // Get credentials
     const creds = getLdapCredentials(SERVICE_NAME);
     console.log(`LLDAP container: ${LDAP_CONTAINER_NAME}`);
+
+    // Get LLDAP container IP - use IP instead of hostname for more reliable connectivity
+    LDAP_CONTAINER_IP = getContainerIp(LDAP_CONTAINER_NAME);
+    console.log(`LLDAP container IP: ${LDAP_CONTAINER_IP}`);
 
     // Get auth network
     AUTH_NETWORK = execSync(
@@ -131,10 +137,10 @@ test.describe('Jellyfin LDAP Integration', () => {
       );
     }
 
-    // LDAP plugin configuration XML - use container name (hostname on docker network)
+    // LDAP plugin configuration XML - use container IP for reliable connectivity
     const ldapPluginConfig = `<?xml version="1.0" encoding="utf-8"?>
 <PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <LdapServer>${LDAP_CONTAINER_NAME}</LdapServer>
+  <LdapServer>${LDAP_CONTAINER_IP}</LdapServer>
   <LdapPort>3890</LdapPort>
   <UseSsl>false</UseSsl>
   <UseStartTls>false</UseStartTls>
@@ -404,11 +410,11 @@ test.describe('Jellyfin LDAP Integration', () => {
       console.log('Could not query LLDAP users:', e.message);
     }
 
-    // First, verify LDAP connectivity from Jellyfin container
-    console.log('Testing LDAP connectivity from Jellyfin...');
+    // First, verify LDAP connectivity from Jellyfin container using IP
+    console.log(`Testing LDAP connectivity from Jellyfin to ${LDAP_CONTAINER_IP}...`);
     try {
       const ldapTest = execSync(
-        `docker exec ${JELLYFIN_CONTAINER} sh -c "echo | timeout 5 nc -v ${LDAP_CONTAINER_NAME} 3890 2>&1 || echo 'nc not available'"`,
+        `docker exec ${JELLYFIN_CONTAINER} sh -c "echo | timeout 5 nc -v ${LDAP_CONTAINER_IP} 3890 2>&1 || echo 'nc not available'"`,
         { encoding: 'utf-8', timeout: 10000 }
       );
       console.log('LDAP connectivity test:', ldapTest);
@@ -427,23 +433,19 @@ test.describe('Jellyfin LDAP Integration', () => {
       console.log('Could not read config:', e.message);
     }
 
-    // Test LDAP search directly using ldapsearch (if available) or Python
-    console.log('Testing LDAP search directly...');
+    // Test LDAP connection directly using Python socket
+    console.log('Testing LDAP connection directly...');
     try {
-      const creds = getLdapCredentials(SERVICE_NAME);
-      // Use Python to test LDAP search since ldapsearch might not be available
+      // Use Python to test LDAP connection since ldapsearch might not be available
       const pythonScript = `
 import socket
-import struct
 
-# Simple LDAP bind and search test
+# Simple LDAP connection test
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 sock.settimeout(10)
 try:
-    sock.connect(("${LDAP_CONTAINER_NAME}", 3890))
-    print("LDAP connection successful")
-
-    # Just verify we can connect - actual LDAP protocol is complex
+    sock.connect(("${LDAP_CONTAINER_IP}", 3890))
+    print("LDAP connection successful to ${LDAP_CONTAINER_IP}:3890")
     sock.close()
 except Exception as e:
     print(f"LDAP connection failed: {e}")
