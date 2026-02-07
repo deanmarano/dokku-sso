@@ -152,6 +152,27 @@ function createOAuth2Provider(
   const authorizationFlow = flows.results[0].pk;
   console.log(`Using authorization flow: ${authorizationFlow}`);
 
+  // Get implicit consent flow (skips consent screen)
+  console.log('Looking for implicit consent flow...');
+  let implicitFlow = authorizationFlow; // fallback to explicit
+  try {
+    const implicitFlowsResult = authentikApiRequest(
+      containerName,
+      'GET',
+      '/api/v3/flows/instances/?search=implicit-consent',
+      token
+    );
+    const implicitFlows = JSON.parse(implicitFlowsResult);
+    if (implicitFlows.results && implicitFlows.results.length > 0) {
+      implicitFlow = implicitFlows.results[0].pk;
+      console.log(`Using implicit consent flow: ${implicitFlow}`);
+    } else {
+      console.log('No implicit consent flow found, using default');
+    }
+  } catch (e) {
+    console.log('Could not find implicit flow, using default');
+  }
+
   // Create OAuth2 provider
   console.log('Creating OAuth2 provider...');
   const providerResult = authentikApiRequest(
@@ -161,7 +182,7 @@ function createOAuth2Provider(
     token,
     {
       name: providerName,
-      authorization_flow: authorizationFlow,
+      authorization_flow: implicitFlow,
       client_type: 'confidential',
       client_id: clientId,
       client_secret: clientSecret,

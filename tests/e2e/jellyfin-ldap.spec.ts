@@ -142,7 +142,7 @@ test.describe('Jellyfin LDAP Integration', () => {
   <LdapBindUser>uid=admin,ou=people,${creds.BASE_DN}</LdapBindUser>
   <LdapBindPassword>${creds.ADMIN_PASSWORD}</LdapBindPassword>
   <LdapBaseDn>ou=people,${creds.BASE_DN}</LdapBaseDn>
-  <LdapSearchFilter>(&amp;(uid={0})(objectClass=person))</LdapSearchFilter>
+  <LdapSearchFilter>(uid={0})</LdapSearchFilter>
   <LdapSearchAttributes>uid,mail,cn</LdapSearchAttributes>
   <LdapUidAttribute>uid</LdapUidAttribute>
   <LdapUsernameAttribute>uid</LdapUsernameAttribute>
