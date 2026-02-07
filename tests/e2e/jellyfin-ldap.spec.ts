@@ -84,7 +84,8 @@ test.describe('Jellyfin LDAP Integration', () => {
     console.log('Setting up Jellyfin LDAP plugin...');
     const jellyfinConfigDir = '/tmp/jellyfin-ldap-config';
     // Plugin needs version subdirectory: /plugins/LDAP Authentication/<version>/
-    const pluginVersion = '18.0.0.0';
+    // Use the latest plugin version compatible with Jellyfin 10.11.x
+    const pluginVersion = '22.0.0.0';
     const pluginDir = `${jellyfinConfigDir}/plugins/LDAP Authentication/${pluginVersion}`;
     fs.mkdirSync(pluginDir, { recursive: true });
     fs.mkdirSync(`${jellyfinConfigDir}/plugins/configurations`, { recursive: true });
