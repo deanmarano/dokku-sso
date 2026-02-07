@@ -91,7 +91,9 @@ test.describe('Jellyfin LDAP Integration', () => {
     const pluginVersion = '22.0.0.0';
     const pluginDir = `${jellyfinConfigDir}/plugins/LDAP Authentication/${pluginVersion}`;
     fs.mkdirSync(pluginDir, { recursive: true });
-    fs.mkdirSync(`${jellyfinConfigDir}/plugins/configurations`, { recursive: true });
+    // Jellyfin 10.11+ stores plugin configs in /config/data/plugins/configurations/
+    // (not /config/plugins/configurations/)
+    fs.mkdirSync(`${jellyfinConfigDir}/data/plugins/configurations`, { recursive: true });
 
     // Download LDAP plugin from Jellyfin's official repository
     // Plugin GUID: 958aad66-3571-4f06-b21d-97a497be2005
@@ -160,7 +162,7 @@ test.describe('Jellyfin LDAP Integration', () => {
 </PluginConfiguration>`;
 
     fs.writeFileSync(
-      `${jellyfinConfigDir}/plugins/configurations/LDAP-Auth.xml`,
+      `${jellyfinConfigDir}/data/plugins/configurations/LDAP-Auth.xml`,
       ldapPluginConfig
     );
     console.log('Wrote LDAP plugin configuration');
@@ -425,7 +427,7 @@ test.describe('Jellyfin LDAP Integration', () => {
     // Check the LDAP config inside the container
     try {
       const configContent = execSync(
-        `docker exec ${JELLYFIN_CONTAINER} cat /config/plugins/configurations/LDAP-Auth.xml 2>/dev/null || echo "Config not found"`,
+        `docker exec ${JELLYFIN_CONTAINER} cat /config/data/plugins/configurations/LDAP-Auth.xml 2>/dev/null || echo "Config not found"`,
         { encoding: 'utf-8' }
       );
       console.log('LDAP config in container:', configContent);
