@@ -125,6 +125,45 @@ except Exception as e:
 }
 
 /**
+ * Get OAuth2 scope property mappings from Authentik
+ */
+function getOAuth2ScopeMappings(
+  containerName: string,
+  token: string
+): string[] {
+  console.log('Getting OAuth2 scope property mappings...');
+
+  // Get all OAuth2 property mappings (these define the scopes)
+  const mappingsResult = authentikApiRequest(
+    containerName,
+    'GET',
+    '/api/v3/propertymappings/scope/?page_size=100',
+    token
+  );
+
+  const mappings = JSON.parse(mappingsResult);
+  if (mappings.error || !mappings.results) {
+    console.log('Mappings result:', mappingsResult);
+    throw new Error('Could not get property mappings');
+  }
+
+  // Filter to the standard scopes we need: openid, profile, email
+  const requiredScopes = ['openid', 'profile', 'email'];
+  const scopeMappingIds: string[] = [];
+
+  for (const mapping of mappings.results) {
+    // Check if this mapping's scope_name matches one we need
+    if (requiredScopes.includes(mapping.scope_name)) {
+      console.log(`Found scope mapping: ${mapping.scope_name} -> ${mapping.pk}`);
+      scopeMappingIds.push(mapping.pk);
+    }
+  }
+
+  console.log(`Found ${scopeMappingIds.length} scope mappings: ${scopeMappingIds.join(', ')}`);
+  return scopeMappingIds;
+}
+
+/**
  * Create OAuth2 provider in Authentik via API
  */
 function createOAuth2Provider(
@@ -136,7 +175,10 @@ function createOAuth2Provider(
 ): { providerId: number; providerName: string } {
   const providerName = `grafana-oidc-provider-${Date.now()}`;
 
-  // First, get an authorization flow - we need its pk
+  // First, get the scope property mappings
+  const scopeMappings = getOAuth2ScopeMappings(containerName, token);
+
+  // Get an authorization flow - we need its pk
   console.log('Getting authorization flows...');
   const flowsResult = authentikApiRequest(
     containerName,
@@ -173,8 +215,8 @@ function createOAuth2Provider(
     console.log('Could not find implicit flow, using default');
   }
 
-  // Create OAuth2 provider
-  console.log('Creating OAuth2 provider...');
+  // Create OAuth2 provider with scope mappings
+  console.log('Creating OAuth2 provider with scope mappings...');
   const providerResult = authentikApiRequest(
     containerName,
     'POST',
@@ -193,6 +235,7 @@ function createOAuth2Provider(
       sub_mode: 'user_username',
       include_claims_in_id_token: true,
       issuer_mode: 'per_provider',
+      property_mappings: scopeMappings, // Add scope mappings
     }
   );
 
