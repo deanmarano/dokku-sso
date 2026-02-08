@@ -1,5 +1,6 @@
 import { execSync } from 'child_process';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 
 export const USE_SUDO = process.env.DOKKU_USE_SUDO === 'true';
 
@@ -203,6 +204,7 @@ export async function waitForHttps(
  * Get the path to a preset file in the integrations directory.
  */
 export function getPresetPath(presetName: string): string {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
   return path.resolve(__dirname, '../../integrations', `${presetName}.sh`);
 }
 
