@@ -265,3 +265,28 @@ export function getGrafanaLdapEnvVars(): Record<string, string> {
   }
   return envVars;
 }
+
+/**
+ * Get Grafana OIDC environment variables from the preset.
+ */
+export function getGrafanaOidcEnvVars(
+  clientId: string,
+  clientSecret: string,
+  authDomain: string,
+): Record<string, string> {
+  const output = callPresetFunction('grafana', 'preset_env_vars', [
+    '', // SERVICE (unused)
+    '', // APP (unused)
+    clientId,
+    clientSecret,
+    authDomain,
+  ]);
+  const envVars: Record<string, string> = {};
+  for (const line of output.split('\n')) {
+    const match = line.match(/^(\w+)=(.+)$/);
+    if (match) {
+      envVars[match[1]] = match[2];
+    }
+  }
+  return envVars;
+}

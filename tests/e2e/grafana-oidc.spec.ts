@@ -9,6 +9,7 @@ import {
   createLdapUser,
   waitForHealthy,
   waitForHttps,
+  getGrafanaOidcEnvVars,
 } from './helpers';
 
 /**
@@ -255,8 +256,8 @@ http {
     const nginxIp = getContainerIp(NGINX_CONTAINER);
     console.log(`nginx container IP: ${nginxIp}`);
 
-    // 9. Deploy Grafana with OIDC env vars
-    console.log('Deploying Grafana with OIDC...');
+    // 9. Deploy Grafana with OIDC env vars from preset
+    console.log('Deploying Grafana with OIDC (using grafana preset)...');
     try {
       execSync(`docker rm -f ${GRAFANA_CONTAINER}`, { encoding: 'utf-8', stdio: 'pipe' });
     } catch (e: any) {
@@ -265,20 +266,18 @@ http {
       }
     }
 
+    // Get OIDC env vars from the preset
+    const oidcEnvVars = getGrafanaOidcEnvVars(OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, AUTH_DOMAIN);
+    const envFlags = Object.entries(oidcEnvVars)
+      .map(([key, value]) => `-e ${key}="${value}"`)
+      .join(' ');
+
     execSync(
       `docker run -d --name ${GRAFANA_CONTAINER} ` +
         `--network ${AUTH_NETWORK} ` +
         `-e GF_SERVER_ROOT_URL=https://${APP_DOMAIN}:${GRAFANA_HTTPS_PORT}/ ` +
-        `-e GF_AUTH_GENERIC_OAUTH_ENABLED=true ` +
-        `-e GF_AUTH_GENERIC_OAUTH_NAME=Authelia ` +
-        `-e GF_AUTH_GENERIC_OAUTH_CLIENT_ID=${OIDC_CLIENT_ID} ` +
-        `-e GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=${OIDC_CLIENT_SECRET} ` +
-        `-e GF_AUTH_GENERIC_OAUTH_SCOPES=openid\\ profile\\ email ` +
-        `-e GF_AUTH_GENERIC_OAUTH_AUTH_URL=https://${AUTH_DOMAIN}/api/oidc/authorization ` +
-        `-e GF_AUTH_GENERIC_OAUTH_TOKEN_URL=https://${AUTH_DOMAIN}/api/oidc/token ` +
-        `-e GF_AUTH_GENERIC_OAUTH_API_URL=https://${AUTH_DOMAIN}/api/oidc/userinfo ` +
+        `${envFlags} ` +
         `-e GF_AUTH_GENERIC_OAUTH_TLS_SKIP_VERIFY_INSECURE=true ` +
-        `-e GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP=true ` +
         `-e GF_SERVER_HTTP_PORT=3000 ` +
         `--add-host=${AUTH_DOMAIN}:${nginxIp} ` +
         `grafana/grafana-oss:latest`,
