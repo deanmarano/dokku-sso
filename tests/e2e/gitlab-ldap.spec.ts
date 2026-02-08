@@ -205,10 +205,10 @@ ${ldapConfig}
 
   test('LDAP authentication works via Rails adapter', async () => {
     // Test LDAP authentication directly using GitLab's LDAP adapter
-    // This validates the connection and credentials without requiring the user in the database
+    // Note: GitLab prefixes provider names with 'ldap', so 'main' becomes 'ldapmain'
     const result = execSync(
       `docker exec ${GITLAB_CONTAINER} gitlab-rails runner "` +
-        `adapter = Gitlab::Auth::Ldap::Adapter.new('main'); ` +
+        `adapter = Gitlab::Auth::Ldap::Adapter.new('ldapmain'); ` +
         `entry = adapter.ldap.bind_as(filter: '(uid=${TEST_USER})', password: '${TEST_PASSWORD}'); ` +
         `puts entry ? 'auth_success' : 'auth_failed'"`,
       { encoding: 'utf-8', timeout: 60000 }
@@ -219,9 +219,10 @@ ${ldapConfig}
 
   test('LDAP user can be found in directory', async () => {
     // Search for the user in LDAP to verify the user exists and is searchable
+    // Note: GitLab prefixes provider names with 'ldap', so 'main' becomes 'ldapmain'
     const result = execSync(
       `docker exec ${GITLAB_CONTAINER} gitlab-rails runner "` +
-        `adapter = Gitlab::Auth::Ldap::Adapter.new('main'); ` +
+        `adapter = Gitlab::Auth::Ldap::Adapter.new('ldapmain'); ` +
         `users = adapter.users('uid', '${TEST_USER}'); ` +
         `puts users.empty? ? 'not_found' : users.first.uid"`,
       { encoding: 'utf-8', timeout: 60000 }
