@@ -24,7 +24,7 @@ import {
 
 const SERVICE_NAME = 'gitlab-ldap-test';
 const TEST_USER = 'gitlabuser';
-const TEST_PASSWORD = 'GitLab123!';
+const TEST_PASSWORD = 'testpassword123';  // Simple password to avoid shell escaping issues
 const TEST_EMAIL = 'gitlabuser@test.local';
 const GITLAB_CONTAINER = 'gitlab-ldap-test';
 
@@ -204,13 +204,16 @@ ${ldapConfig}
   });
 
   test('LDAP authentication works via Rails adapter', async () => {
-    // Test LDAP authentication directly using GitLab's LDAP adapter
+    // Test LDAP authentication by finding the user's DN and binding with their credentials
     // Note: GitLab prefixes provider names with 'ldap', so 'main' becomes 'ldapmain'
     const result = execSync(
       `docker exec ${GITLAB_CONTAINER} gitlab-rails runner "` +
         `adapter = Gitlab::Auth::Ldap::Adapter.new('ldapmain'); ` +
-        `entry = adapter.ldap.bind_as(filter: '(uid=${TEST_USER})', password: '${TEST_PASSWORD}'); ` +
-        `puts entry ? 'auth_success' : 'auth_failed'"`,
+        `person = Gitlab::Auth::Ldap::Person.find_by_uid('${TEST_USER}', adapter); ` +
+        `if person.nil?; puts 'user_not_found'; exit; end; ` +
+        `dn = person.dn; ` +
+        `success = adapter.ldap.bind(method: :simple, username: dn, password: '${TEST_PASSWORD}'); ` +
+        `puts success ? 'auth_success' : 'auth_failed'"`,
       { encoding: 'utf-8', timeout: 60000 }
     );
     console.log('LDAP auth result:', result.trim());
