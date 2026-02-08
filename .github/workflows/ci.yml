@@ -20,6 +20,8 @@ jobs:
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          # Compare against previous commit on push, not merge-base with default branch
+          base: ${{ github.event.before }}
           filters: |
             code:
               - 'commands'
