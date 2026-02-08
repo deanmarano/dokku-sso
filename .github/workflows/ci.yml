@@ -47,7 +47,7 @@ jobs:
     name: Integration Tests
     runs-on: ubuntu-24.04
     # Only run on main branch pushes, not PRs (expensive)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk')
     steps:
       - uses: actions/checkout@v4
 
@@ -98,7 +98,7 @@ jobs:
   e2e-gitea:
     name: E2E - Gitea Integration
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk')
     steps:
       - uses: actions/checkout@v4
 
@@ -154,7 +154,7 @@ jobs:
   e2e-nextcloud:
     name: E2E - Nextcloud LDAP
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk')
     steps:
       - uses: actions/checkout@v4
 
@@ -210,7 +210,7 @@ jobs:
   e2e-multi-app:
     name: E2E - Multi-App Integration
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk')
     steps:
       - uses: actions/checkout@v4
 
@@ -266,7 +266,7 @@ jobs:
   e2e-oidc-app:
     name: E2E - OIDC Application
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk')
     steps:
       - uses: actions/checkout@v4
 
@@ -332,7 +332,7 @@ jobs:
   e2e-grafana-ldap:
     name: E2E - Grafana LDAP
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk')
     steps:
       - uses: actions/checkout@v4
 
@@ -390,7 +390,7 @@ jobs:
   e2e-grafana-oidc:
     name: E2E - Grafana OIDC
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk')
     steps:
       - uses: actions/checkout@v4
 
@@ -458,7 +458,7 @@ jobs:
   e2e-gitlab-ldap:
     name: E2E - GitLab LDAP
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk')
     steps:
       - uses: actions/checkout@v4
 
@@ -517,7 +517,7 @@ jobs:
   e2e-glauth:
     name: E2E - GLAuth Provider
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk')
     steps:
       - uses: actions/checkout@v4
 
@@ -575,7 +575,7 @@ jobs:
   e2e-openldap:
     name: E2E - OpenLDAP Provider
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk')
     steps:
       - uses: actions/checkout@v4
 
@@ -633,7 +633,7 @@ jobs:
   e2e-authentik:
     name: E2E - Authentik Provider
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk')
     steps:
       - uses: actions/checkout@v4
 
@@ -698,7 +698,7 @@ jobs:
   e2e-authentik-grafana-ldap:
     name: E2E - Authentik + Grafana LDAP
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk')
     steps:
       - uses: actions/checkout@v4
 
@@ -759,7 +759,7 @@ jobs:
   e2e-authentik-grafana-oidc:
     name: E2E - Authentik + Grafana OIDC
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk')
     steps:
       - uses: actions/checkout@v4
 
@@ -830,7 +830,7 @@ jobs:
   e2e-radarr-forward-auth:
     name: E2E - Radarr Forward Auth
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk')
     steps:
       - uses: actions/checkout@v4
 
