@@ -174,6 +174,14 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       timeout: 600000, // 10 minutes
     },
+
+    // Immich OIDC integration tests
+    {
+      name: 'immich-oidc',
+      testMatch: ['immich-oidc.spec.ts'],
+      use: { ...devices['Desktop Chrome'] },
+      timeout: 600000, // 10 minutes
+    },
   ],
 
   // Output directory for test artifacts
