@@ -419,20 +419,23 @@ http {
     );
 
     // Wait for Immich to be ready
+    // Immich takes a while to start - it imports geodata, runs migrations, etc.
     console.log('Waiting for Immich server to be ready...');
     let immichReady = false;
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 120; i++) { // 4 minutes (120 * 2s)
       try {
+        // Immich ping returns {"res":"pong"} - check for the json response
         const result = execSync(
-          `docker exec ${IMMICH_SERVER_CONTAINER} curl -sf http://localhost:2283/api/server-info/ping 2>/dev/null || echo "not ready"`,
+          `docker exec ${IMMICH_SERVER_CONTAINER} curl -sf http://localhost:2283/api/server/ping 2>/dev/null || echo "not ready"`,
           { encoding: 'utf-8', timeout: 10000 }
         );
-        if (result.includes('pong')) {
+        // Check for pong in the response (case insensitive)
+        if (result.toLowerCase().includes('pong')) {
           immichReady = true;
           break;
         }
       } catch {}
-      if (i % 10 === 0 && i > 0) {
+      if (i % 15 === 0 && i > 0) {
         console.log(`Still waiting for Immich... (${i * 2}s elapsed)`);
         // Check container status
         try {
@@ -462,7 +465,7 @@ http {
     // Wait for Immich HTTPS to be accessible via nginx
     console.log('Waiting for Immich HTTPS to be accessible...');
     const immichHttpsReady = await waitForHttps(
-      `https://${APP_DOMAIN}:${IMMICH_HTTPS_PORT}/api/server-info/ping`,
+      `https://${APP_DOMAIN}:${IMMICH_HTTPS_PORT}/api/server/ping`,
       60000
     );
     if (!immichHttpsReady) {
@@ -511,15 +514,16 @@ http {
 
   test('Immich server is accessible', async () => {
     const result = execSync(
-      `docker exec ${IMMICH_SERVER_CONTAINER} curl -sf http://localhost:2283/api/server-info/ping`,
+      `docker exec ${IMMICH_SERVER_CONTAINER} curl -sf http://localhost:2283/api/server/ping`,
       { encoding: 'utf-8' }
     );
-    expect(result).toContain('pong');
+    // Immich returns {"res":"pong"}
+    expect(result.toLowerCase()).toContain('pong');
   });
 
   test('Immich server info is accessible', async () => {
     const result = execSync(
-      `docker exec ${IMMICH_SERVER_CONTAINER} curl -sf http://localhost:2283/api/server-info/version`,
+      `docker exec ${IMMICH_SERVER_CONTAINER} curl -sf http://localhost:2283/api/server/version`,
       { encoding: 'utf-8' }
     );
     const info = JSON.parse(result);
