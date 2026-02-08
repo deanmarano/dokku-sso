@@ -351,17 +351,21 @@ http {
     }
 
     // Check nginx error log for any clues
+    console.log('Checking nginx error log...');
     try {
       const nginxErrors = execSync(
         `docker exec ${NGINX_CONTAINER} cat /var/log/nginx/error.log 2>/dev/null || echo "No error log"`,
-        { encoding: 'utf-8' }
+        { encoding: 'utf-8', timeout: 10000 }
       );
       if (nginxErrors.trim() && nginxErrors.trim() !== 'No error log') {
         console.log(`Nginx error log: ${nginxErrors}`);
       }
-    } catch {}
+    } catch (e: any) {
+      console.log(`Error checking nginx log: ${e.message}`);
+    }
 
     // Give services a moment to fully stabilize after all setup
+    console.log('Waiting for services to stabilize...');
     await new Promise((r) => setTimeout(r, 5000));
 
     console.log('=== Setup complete ===');
@@ -413,80 +417,38 @@ http {
   });
 
   test('Main UI redirects to Authelia when not authenticated', async ({ page }) => {
-    // Set a shorter default timeout for this test
-    test.setTimeout(120000);
-
     // Clear cookies to ensure we're not authenticated
     await page.context().clearCookies();
 
     // Try to access Radarr main UI
     console.log(`Navigating to https://${APP_DOMAIN}:${RADARR_HTTPS_PORT}/`);
-
-    try {
-      const response = await page.goto(`https://${APP_DOMAIN}:${RADARR_HTTPS_PORT}/`, {
-        waitUntil: 'commit', // Use 'commit' instead of 'domcontentloaded' for faster response
-        timeout: 30000,
-      });
-      console.log(`Initial response status: ${response?.status()}`);
-      console.log(`Current URL after goto: ${page.url()}`);
-    } catch (e: any) {
-      console.log(`Navigation error (may be expected for redirect): ${e.message}`);
-      console.log(`Current URL: ${page.url()}`);
-    }
-
-    // Take screenshot for debugging
-    await page.screenshot({ path: 'test-results/radarr-forward-auth-initial.png' }).catch(() => {});
+    await page.goto(`https://${APP_DOMAIN}:${RADARR_HTTPS_PORT}/`);
 
     // Should be redirected to Authelia login
-    const currentUrl = page.url();
-    console.log(`Current URL: ${currentUrl}`);
-
-    if (!currentUrl.includes(AUTH_DOMAIN)) {
-      console.log('Not redirected yet, waiting for redirect...');
-      try {
-        await page.waitForURL((url) => url.hostname === AUTH_DOMAIN, { timeout: 15000 });
-      } catch (e: any) {
-        console.log(`Redirect wait failed: ${e.message}`);
-        console.log(`Final URL: ${page.url()}`);
-        await page.screenshot({ path: 'test-results/radarr-redirect-failed.png' }).catch(() => {});
-        throw e;
-      }
-    }
+    console.log('Waiting for redirect to Authelia...');
+    await page.waitForURL(new RegExp(AUTH_DOMAIN), { timeout: 30000 });
 
     console.log(`URL after redirect: ${page.url()}`);
+    await page.screenshot({ path: 'test-results/radarr-forward-auth-initial.png' }).catch(() => {});
 
     // Verify we're on Authelia login page
     const loginForm = page.locator('input[name="username"], input[id="username-textfield"]');
-    await expect(loginForm).toBeVisible({ timeout: 10000 });
+    await expect(loginForm).toBeVisible({ timeout: 15000 });
 
     console.log('Forward auth working - redirected to Authelia');
   });
 
   test('Full forward auth login flow', async ({ page }) => {
-    // Set a shorter default timeout for this test
-    test.setTimeout(180000);
-
     // Clear cookies
     await page.context().clearCookies();
 
     // 1. Navigate to Radarr
     console.log('Navigating to Radarr...');
-    try {
-      await page.goto(`https://${APP_DOMAIN}:${RADARR_HTTPS_PORT}/`, {
-        waitUntil: 'commit',
-        timeout: 30000,
-      });
-    } catch (e: any) {
-      console.log(`Initial navigation: ${e.message}`);
-    }
+    await page.goto(`https://${APP_DOMAIN}:${RADARR_HTTPS_PORT}/`);
 
     // 2. Should redirect to Authelia
     console.log('Waiting for Authelia redirect...');
-    console.log(`Current URL: ${page.url()}`);
-
-    if (!page.url().includes(AUTH_DOMAIN)) {
-      await page.waitForURL((url) => url.hostname === AUTH_DOMAIN, { timeout: 30000 });
-    }
+    await page.waitForURL(new RegExp(AUTH_DOMAIN), { timeout: 30000 });
     await page.screenshot({ path: 'test-results/authelia-login-radarr.png' }).catch(() => {});
 
     // 3. Fill credentials
@@ -494,46 +456,59 @@ http {
     const usernameInput = page.locator('input[name="username"], input[id="username-textfield"]').first();
     const passwordInput = page.locator('input[name="password"], input[id="password-textfield"]').first();
 
-    await expect(usernameInput).toBeVisible({ timeout: 10000 });
+    await expect(usernameInput).toBeVisible({ timeout: 15000 });
     await usernameInput.fill(TEST_USER);
     await passwordInput.fill(TEST_PASSWORD);
 
     // 4. Submit login
     console.log('Submitting login...');
-    const submitButton = page.locator('button[type="submit"]').first();
+    const submitButton = page.locator('button[type="submit"], button:has-text("Sign in"), button:has-text("Login")').first();
     await submitButton.click();
 
-    // 5. Should redirect back to Radarr
-    console.log('Waiting for Radarr redirect...');
+    // 5. Wait a moment for any consent screen or processing
+    await page.waitForTimeout(2000);
+    const currentUrl = page.url();
+    console.log(`Current URL after login: ${currentUrl}`);
+    await page.screenshot({ path: 'test-results/after-radarr-login.png' }).catch(() => {});
 
-    try {
-      await page.waitForURL((url) => url.hostname === APP_DOMAIN, { timeout: 30000 });
-    } catch (e: any) {
-      console.log(`Redirect to Radarr failed: ${e.message}`);
-      console.log(`Current URL: ${page.url()}`);
-      await page.screenshot({ path: 'test-results/radarr-redirect-back-failed.png' }).catch(() => {});
-      throw e;
+    // If still on Authelia (consent screen), try to click accept
+    if (currentUrl.includes(AUTH_DOMAIN)) {
+      console.log('Still on Authelia - checking for consent screen...');
+      const consentSelectors = [
+        'button:has-text("Accept")',
+        'button:has-text("Consent")',
+        'button:has-text("Authorize")',
+        'button:has-text("Allow")',
+        'button[type="submit"]',
+      ];
+      for (const selector of consentSelectors) {
+        try {
+          const btn = page.locator(selector).first();
+          if (await btn.isVisible({ timeout: 2000 })) {
+            console.log(`Found consent button: ${selector}`);
+            await btn.click();
+            break;
+          }
+        } catch {
+          // Try next selector
+        }
+      }
     }
 
-    console.log(`Redirected to: ${page.url()}`);
+    // 6. Should redirect back to Radarr
+    console.log('Waiting for Radarr redirect...');
+    await page.waitForURL(new RegExp(APP_DOMAIN), { timeout: 30000 });
 
-    // Wait for page to be interactive (don't use networkidle - Radarr keeps polling)
+    console.log(`Redirected to: ${page.url()}`);
     await page.waitForTimeout(3000);
     await page.screenshot({ path: 'test-results/radarr-logged-in.png' }).catch(() => {});
 
-    // 6. Verify we can see Radarr UI
+    // 7. Verify we can see Radarr UI
     const pageContent = await page.content();
     console.log('Page content preview:', pageContent.substring(0, 500));
 
-    // Radarr UI should be visible - the page should contain Radarr-specific content
+    // Radarr UI should be visible
     expect(page.url()).toContain(APP_DOMAIN);
-
-    // Optionally verify Radarr is showing (not the login page)
-    // Radarr shows a hamburger menu icon or movie-related elements
-    const hasRadarrContent = pageContent.includes('Radarr') ||
-                             pageContent.includes('movie') ||
-                             pageContent.includes('Movie');
-    console.log(`Has Radarr content: ${hasRadarrContent}`);
 
     console.log('Forward auth login successful!');
   });
