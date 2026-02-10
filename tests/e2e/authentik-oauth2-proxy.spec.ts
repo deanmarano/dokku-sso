@@ -177,20 +177,35 @@ function getSigningKey(containerName: string, token: string): string | null {
     return null;
   }
 
-  // Look for authentik self-signed certificate first (created by default)
+  // Log all keypairs for debugging
+  console.log(`Found ${keypairs.results.length} keypairs total`);
   for (const kp of keypairs.results) {
-    if (kp.name?.includes('authentik') && kp.has_key === true) {
-      console.log(`Found Authentik self-signed keypair: ${kp.pk}`);
+    console.log(`  Keypair: ${kp.name}, pk=${kp.pk}, has_key=${kp.has_key}, private_key_available=${kp.private_key_available}`);
+  }
+
+  // Look for authentik self-signed certificate first (created by default)
+  // The self-signed certificate should have a private key
+  for (const kp of keypairs.results) {
+    if (kp.name?.toLowerCase().includes('authentik') || kp.name?.toLowerCase().includes('self-signed')) {
+      console.log(`Using Authentik self-signed keypair: ${kp.pk}`);
       return kp.pk;
     }
   }
 
-  // Fall back to any keypair with a private key
+  // Fall back to any keypair that has a private key
+  // Check both has_key and private_key_available (API might use different fields)
   for (const kp of keypairs.results) {
-    if (kp.has_key === true) {
-      console.log(`Found keypair: ${kp.name} -> ${kp.pk}`);
+    if (kp.has_key === true || kp.private_key_available === true || kp.has_key !== false) {
+      console.log(`Using keypair: ${kp.name} -> ${kp.pk}`);
       return kp.pk;
     }
+  }
+
+  // Last resort: use the first keypair
+  if (keypairs.results.length > 0) {
+    const kp = keypairs.results[0];
+    console.log(`Using first available keypair: ${kp.name} -> ${kp.pk}`);
+    return kp.pk;
   }
 
   console.log('No certificate keypairs found');
