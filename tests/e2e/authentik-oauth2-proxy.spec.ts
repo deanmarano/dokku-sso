@@ -531,6 +531,33 @@ http {
       throw new Error('Authentik flows not ready after waiting');
     }
 
+    // Wait for scope property mappings to be available
+    console.log('Waiting for scope property mappings...');
+    let scopeMappingsReady = false;
+    for (let i = 0; i < 30; i++) {
+      try {
+        const mappingsResult = authentikApiRequest(
+          authentikContainerName,
+          'GET',
+          '/api/v3/propertymappings/scope/?page_size=100',
+          AUTHENTIK_BOOTSTRAP_TOKEN
+        );
+        const mappings = JSON.parse(mappingsResult);
+        if (mappings.results && mappings.results.length > 0) {
+          scopeMappingsReady = true;
+          console.log(`Found ${mappings.results.length} scope property mappings`);
+          break;
+        }
+        console.log('No scope mappings yet, waiting...');
+      } catch (e) {
+        console.log('Error checking scope mappings:', e);
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    if (!scopeMappingsReady) {
+      console.log('Warning: Scope mappings not ready, continuing anyway...');
+    }
+
     // Configure Authentik with OAuth2 provider and application
     console.log('Configuring Authentik OAuth2...');
     const appSlug = `oauth2-proxy-${Date.now()}`;
