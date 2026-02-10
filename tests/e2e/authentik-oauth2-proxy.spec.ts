@@ -603,6 +603,37 @@ http {
       console.log('Warning: Scope mappings not ready, continuing anyway...');
     }
 
+    // Wait for certificate keypairs to be available (created by Authentik blueprints)
+    console.log('Waiting for certificate keypairs...');
+    let keypairsReady = false;
+    for (let i = 0; i < 30; i++) {
+      try {
+        const keypairsResult = authentikApiRequest(
+          authentikContainerName,
+          'GET',
+          '/api/v3/crypto/certificatekeypairs/',
+          AUTHENTIK_BOOTSTRAP_TOKEN
+        );
+        const keypairs = JSON.parse(keypairsResult);
+        console.log(`Keypairs API response: ${keypairs.results?.length || 0} keypairs`);
+        if (keypairs.results && keypairs.results.length > 0) {
+          keypairsReady = true;
+          // Log all keypairs for debugging
+          for (const kp of keypairs.results) {
+            console.log(`  - ${kp.name}: pk=${kp.pk}, has_key=${kp.has_key}`);
+          }
+          break;
+        }
+        console.log('No certificate keypairs yet, waiting...');
+      } catch (e) {
+        console.log('Error checking certificate keypairs:', e);
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    if (!keypairsReady) {
+      console.log('Warning: Certificate keypairs not ready, JWT signing may fail...');
+    }
+
     // Configure Authentik with OAuth2 provider and application
     console.log('Configuring Authentik OAuth2...');
     const appSlug = `oauth2-proxy-${Date.now()}`;
