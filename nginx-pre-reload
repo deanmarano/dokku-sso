@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Hook: nginx-pre-reload
+# Injects forward auth directives into nginx config for protected apps
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions" 2>/dev/null || true
+
+trigger-auth-nginx-pre-reload() {
+  declare desc="Inject forward auth into nginx config for protected apps"
+  declare trigger="nginx-pre-reload"
+  declare APP="$1"
+
+  [[ -z "$APP" ]] && return 0
+
+  local PLUGIN_DATA_ROOT="/var/lib/dokku/services"
+  local DOKKU_ROOT="${DOKKU_ROOT:-/home/dokku}"
+  local NGINX_CONF="$DOKKU_ROOT/$APP/nginx.conf"
+
+  [[ ! -f "$NGINX_CONF" ]] && return 0
+
+  # Check if this app is protected by any frontend service
+  local AUTH_CONF_FILE=""
+  for service_dir in "$PLUGIN_DATA_ROOT/auth/frontend"/*/; do
+    [[ -d "$service_dir" ]] || continue
+    local protected_file="$service_dir/PROTECTED"
+    [[ -f "$protected_file" ]] || continue
+    if grep -qx "$APP" "$protected_file" 2>/dev/null; then
+      AUTH_CONF_FILE="$DOKKU_ROOT/$APP/nginx.conf.d/forward-auth.conf"
+      break
+    fi
+  done
+
+  [[ -z "$AUTH_CONF_FILE" ]] && return 0
+  [[ ! -f "$AUTH_CONF_FILE" ]] && return 0
+
+  # Read the auth directives to inject into location /
+  local LOCATION_DIRECTIVES=""
+  LOCATION_DIRECTIVES=$(grep -E '^\s*(auth_request |auth_request_set |error_page 401 )' "$AUTH_CONF_FILE" || true)
+
+  [[ -z "$LOCATION_DIRECTIVES" ]] && return 0
+
+  # Inject auth directives into each "location / {" or "location    / {" block
+  # We add them right after the opening brace of location /
+  local INDENT="    "
+  local INJECT_BLOCK=""
+  while IFS= read -r line; do
+    INJECT_BLOCK="${INJECT_BLOCK}${INDENT}${line}\n"
+  done <<< "$LOCATION_DIRECTIVES"
+
+  # Use sed to inject after "location" whitespace "/" whitespace "{"
+  # Match both "location / {" and "location    / {"
+  sed -i "/location[[:space:]]*\/[[:space:]]*{/a\\
+${INJECT_BLOCK%\\n}" "$NGINX_CONF"
+
+  # Add "auth_request off;" to all internal error page locations to prevent loops
+  # These are locations like: location /400-error.html {
+  sed -i '/-error\.html {/a\    auth_request off;' "$NGINX_CONF"
+}
+
+trigger-auth-nginx-pre-reload "$@"

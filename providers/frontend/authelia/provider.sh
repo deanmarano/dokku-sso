@@ -421,16 +421,20 @@ provider_protect_app() {
     docker network connect "$AUTH_NETWORK" "$APP_CONTAINER" 2>/dev/null || true
   fi
 
-  # Write nginx forward auth include
+  # Write nginx forward auth config
+  # The nginx-pre-reload trigger injects auth_request/error_page into location /
+  # This file provides: supporting locations + directives for the trigger to extract
   local DOKKU_ROOT="${DOKKU_ROOT:-/home/dokku}"
   local NGINX_CONF_DIR="$DOKKU_ROOT/$APP/nginx.conf.d"
   mkdir -p "$NGINX_CONF_DIR"
-  cat > "$NGINX_CONF_DIR/authelia-forward-auth.conf" <<EOF
+  cat > "$NGINX_CONF_DIR/forward-auth.conf" <<EOF
 # Authelia forward auth - managed by dokku-auth plugin
+# Server-level locations
 location /authelia-auth {
     internal;
     proxy_pass https://$DOMAIN/api/authz/auth-request;
     proxy_pass_request_body off;
+    proxy_ssl_verify off;
     proxy_set_header Content-Length "";
     proxy_set_header X-Original-Method \$request_method;
     proxy_set_header X-Original-URL \$scheme://\$http_host\$request_uri;
@@ -440,19 +444,21 @@ location /authelia-auth {
     proxy_set_header X-Forwarded-Uri \$request_uri;
 }
 
+location @forward_auth_login {
+    auth_request off;
+    return 302 https://$DOMAIN/?rd=\$scheme://\$http_host\$request_uri;
+}
+
+# Directives below are injected into location / by the nginx-pre-reload trigger
 auth_request /authelia-auth;
 auth_request_set \$authelia_user \$upstream_http_remote_user;
 auth_request_set \$authelia_groups \$upstream_http_remote_groups;
 auth_request_set \$authelia_name \$upstream_http_remote_name;
 auth_request_set \$authelia_email \$upstream_http_remote_email;
-
-error_page 401 = @authelia_login;
-location @authelia_login {
-    return 302 https://$DOMAIN/?rd=\$scheme://\$http_host\$request_uri;
-}
+error_page 401 = @forward_auth_login;
 EOF
 
-  # Rebuild nginx config
+  # Rebuild nginx config (triggers nginx-pre-reload hook)
   "$DOKKU_BIN" proxy:build-config "$APP" 2>/dev/null || true
 }
 
@@ -473,7 +479,7 @@ provider_unprotect_app() {
 
   # Remove nginx forward auth include
   local DOKKU_ROOT="${DOKKU_ROOT:-/home/dokku}"
-  rm -f "$DOKKU_ROOT/$APP/nginx.conf.d/authelia-forward-auth.conf"
+  rm -f "$DOKKU_ROOT/$APP/nginx.conf.d/forward-auth.conf"
 
   # Rebuild nginx config
   "$DOKKU_BIN" proxy:build-config "$APP" 2>/dev/null || true
