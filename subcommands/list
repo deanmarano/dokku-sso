@@ -38,8 +38,8 @@ if [[ -d "$PLUGIN_DATA_ROOT/directory" ]]; then
     if [[ -n "$QUIET" ]]; then
       echo "$SERVICE"
     else
-      # Check if running
-      CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+      # Check if running (prefer CONTAINER_NAME file for externally managed services)
+      CONTAINER_NAME=$(cat "$service_dir/CONTAINER_NAME" 2>/dev/null || get_directory_container_name "$SERVICE")
       if docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
         STATUS="running"
       else
