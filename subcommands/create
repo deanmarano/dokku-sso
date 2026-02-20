@@ -11,6 +11,7 @@ source "$PLUGIN_BASE_PATH/providers/loader.sh"
 # Parse arguments
 SERVICE=""
 PROVIDER=""
+ADOPT_APP=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --provider)
@@ -19,6 +20,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --provider=*)
       PROVIDER="${1#*=}"
+      shift
+      ;;
+    --app)
+      ADOPT_APP="$2"
+      shift 2
+      ;;
+    --app=*)
+      ADOPT_APP="${1#*=}"
       shift
       ;;
     -*)
@@ -33,13 +42,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$SERVICE" ]]; then
-  echo "Usage: dokku auth:create <service> [--provider <provider>]" >&2
+  echo "Usage: dokku auth:create <service> [--provider <provider>] [--app <dokku-app>]" >&2
   echo "" >&2
   echo "Create a new directory service" >&2
   echo "" >&2
   echo "Options:" >&2
   echo "  --provider <provider>  Directory provider to use (default: $DEFAULT_DIRECTORY_PROVIDER)" >&2
   echo "                         Available: $(list_directory_providers | tr '\n' ' ')" >&2
+  echo "  --app <dokku-app>      Adopt an existing Dokku app instead of creating a new one" >&2
   exit 1
 fi
 
@@ -63,8 +73,8 @@ fi
 
 SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
 
-# Check if service already exists
-if directory_service_exists "$SERVICE"; then
+# Check if service already exists (allow --app on existing services for re-adoption)
+if directory_service_exists "$SERVICE" && [[ -z "$ADOPT_APP" ]]; then
   echo "!     Service $SERVICE already exists" >&2
   exit 1
 fi
@@ -77,7 +87,7 @@ if ! docker network ls -q -f "name=^${AUTH_NETWORK}$" | grep -q .; then
   docker network create "$AUTH_NETWORK" >/dev/null
 fi
 
-# Create service directory
+# Create service directory (idempotent for adopt case)
 mkdir -p "$SERVICE_ROOT/config"
 mkdir -p "$SERVICE_ROOT/data"
 mkdir -p "$SERVICE_ROOT/linked-vars"
@@ -85,12 +95,19 @@ mkdir -p "$SERVICE_ROOT/linked-vars"
 # Set provider
 echo "$PROVIDER" > "$SERVICE_ROOT/PROVIDER"
 
-# Load provider and create container
+# Load provider
 load_directory_provider "$SERVICE"
-provider_create_container "$SERVICE"
+
+if [[ -n "$ADOPT_APP" ]]; then
+  # Adopt an existing Dokku app
+  echo "-----> Adopting existing Dokku app $ADOPT_APP"
+  provider_adopt_app "$SERVICE" "$ADOPT_APP"
+else
+  # Deploy a new Dokku app
+  provider_create_container "$SERVICE"
+fi
 
 # Store metadata
-get_directory_container_name "$SERVICE" > "$SERVICE_ROOT/CONTAINER_NAME"
 echo "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION" > "$SERVICE_ROOT/IMAGE"
 touch "$SERVICE_ROOT/LINKS"
 

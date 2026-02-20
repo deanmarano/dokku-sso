@@ -34,7 +34,7 @@ fi
 
 load_directory_provider "$SERVICE"
 
-CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+APP_NAME=$(get_directory_app_name "$SERVICE")
 ISSUES=0
 
 echo "=====> Running diagnostics for $SERVICE"
@@ -57,51 +57,98 @@ else
   ISSUES=$((ISSUES + 1))
 fi
 
-# Check 3: Container exists
-echo -n "       Checking container exists... "
-if docker ps -a -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
-  echo "OK"
-else
-  echo "FAILED - container not found"
-  ISSUES=$((ISSUES + 1))
-fi
+if [[ -n "$APP_NAME" ]]; then
+  # Dokku app checks
 
-# Check 4: Container is running
-echo -n "       Checking container is running... "
-if docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
-  echo "OK"
-else
-  echo "FAILED - container not running"
-  ISSUES=$((ISSUES + 1))
-
-  # Try to start it
-  echo "       Attempting to start container..."
-  if docker start "$CONTAINER_NAME" >/dev/null 2>&1; then
-    echo "       Container started"
-    sleep 5
+  # Check 3: App exists
+  echo -n "       Checking Dokku app exists... "
+  if "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+    echo "OK ($APP_NAME)"
   else
-    echo "       Failed to start container"
+    echo "FAILED - app $APP_NAME not found"
+    ISSUES=$((ISSUES + 1))
   fi
-fi
 
-# Check 5: Network exists
-echo -n "       Checking auth network... "
-if docker network ls -q -f "name=^${AUTH_NETWORK}$" | grep -q .; then
-  echo "OK"
-else
-  echo "FAILED - creating network"
-  docker network create "$AUTH_NETWORK" >/dev/null
-  ISSUES=$((ISSUES + 1))
-fi
+  # Check 4: App is running
+  echo -n "       Checking app is running... "
+  if provider_is_running "$SERVICE"; then
+    echo "OK"
+  else
+    echo "FAILED - app not running"
+    ISSUES=$((ISSUES + 1))
+  fi
 
-# Check 6: Container on network
-echo -n "       Checking container network... "
-if docker inspect "$CONTAINER_NAME" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' 2>/dev/null | grep -q "$AUTH_NETWORK"; then
-  echo "OK"
+  # Check 5: Network exists
+  echo -n "       Checking auth network... "
+  if docker network ls -q -f "name=^${AUTH_NETWORK}$" | grep -q .; then
+    echo "OK"
+  else
+    echo "FAILED - creating network"
+    docker network create "$AUTH_NETWORK" >/dev/null
+    ISSUES=$((ISSUES + 1))
+  fi
+
+  # Check 6: App attached to auth network
+  echo -n "       Checking network attachment... "
+  NETWORK_SETTING=$("$DOKKU_BIN" network:report "$APP_NAME" --network-attach-post-deploy 2>/dev/null || echo "")
+  if echo "$NETWORK_SETTING" | grep -q "$AUTH_NETWORK"; then
+    echo "OK"
+  else
+    echo "FAILED - attaching to network"
+    "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$AUTH_NETWORK"
+    ISSUES=$((ISSUES + 1))
+  fi
+
 else
-  echo "FAILED - connecting to network"
-  docker network connect "$AUTH_NETWORK" "$CONTAINER_NAME" 2>/dev/null || true
-  ISSUES=$((ISSUES + 1))
+  # Legacy Docker container checks
+  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+
+  # Check 3: Container exists
+  echo -n "       Checking container exists... "
+  if docker ps -a -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+    echo "OK"
+  else
+    echo "FAILED - container not found"
+    ISSUES=$((ISSUES + 1))
+  fi
+
+  # Check 4: Container is running
+  echo -n "       Checking container is running... "
+  if docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+    echo "OK"
+  else
+    echo "FAILED - container not running"
+    ISSUES=$((ISSUES + 1))
+
+    # Try to start it
+    echo "       Attempting to start container..."
+    if docker start "$CONTAINER_NAME" >/dev/null 2>&1; then
+      echo "       Container started"
+      sleep 5
+    else
+      echo "       Failed to start container"
+    fi
+  fi
+
+  # Check 5: Network exists
+  echo -n "       Checking auth network... "
+  if docker network ls -q -f "name=^${AUTH_NETWORK}$" | grep -q .; then
+    echo "OK"
+  else
+    echo "FAILED - creating network"
+    docker network create "$AUTH_NETWORK" >/dev/null
+    ISSUES=$((ISSUES + 1))
+  fi
+
+  # Check 6: Container on network
+  echo -n "       Checking container network... "
+  if docker inspect "$CONTAINER_NAME" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' 2>/dev/null | grep -q "$AUTH_NETWORK"; then
+    echo "OK"
+  else
+    echo "FAILED - connecting to network"
+    docker network connect "$AUTH_NETWORK" "$CONTAINER_NAME" 2>/dev/null || true
+    ISSUES=$((ISSUES + 1))
+  fi
 fi
 
 # Check 7: Provider verification (LDAP responding)
@@ -116,7 +163,8 @@ fi
 # Check 8: HTTP port responding (if applicable)
 if [[ -n "$PROVIDER_HTTP_PORT" ]]; then
   echo -n "       Checking HTTP port... "
-  if docker exec "$CONTAINER_NAME" /bin/sh -c "nc -z localhost $PROVIDER_HTTP_PORT" 2>/dev/null; then
+  CONTAINER_ID=$(get_running_container_id "$SERVICE" 2>/dev/null || echo "")
+  if [[ -n "$CONTAINER_ID" ]] && docker exec "$CONTAINER_ID" /bin/sh -c "nc -z localhost $PROVIDER_HTTP_PORT" 2>/dev/null; then
     echo "OK (port $PROVIDER_HTTP_PORT)"
   else
     echo "FAILED - HTTP not responding"
@@ -164,11 +212,16 @@ if [[ -s "$SERVICE_ROOT/LINKS" ]]; then
   done < "$SERVICE_ROOT/LINKS"
 fi
 
-# Verbose: show container logs
+# Verbose: show logs
 if [[ -n "$VERBOSE" ]]; then
   echo ""
-  echo "       Recent container logs:"
-  docker logs --tail 20 "$CONTAINER_NAME" 2>&1 | sed 's/^/         /'
+  echo "       Recent logs:"
+  if [[ -n "$APP_NAME" ]]; then
+    "$DOKKU_BIN" logs "$APP_NAME" --num 20 2>&1 | sed 's/^/         /'
+  else
+    CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+    docker logs --tail 20 "$CONTAINER_NAME" 2>&1 | sed 's/^/         /'
+  fi
 fi
 
 # Summary

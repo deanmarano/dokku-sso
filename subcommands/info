@@ -36,17 +36,28 @@ fi
 
 load_directory_provider "$SERVICE"
 
-CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
 PROVIDER=$(cat "$SERVICE_ROOT/PROVIDER" 2>/dev/null || echo "unknown")
 CONFIG_DIR="$SERVICE_ROOT/config"
 BASE_DN=$(cat "$CONFIG_DIR/BASE_DN" 2>/dev/null || echo "")
 HTTP_URL=$(cat "$CONFIG_DIR/HTTP_URL" 2>/dev/null || echo "")
 
-# Check status
-if docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
-  STATUS="running"
+# Determine LDAP URL and status
+APP_NAME=$(get_directory_app_name "$SERVICE")
+if [[ -n "$APP_NAME" ]]; then
+  LDAP_HOST="$APP_NAME.web"
+  if provider_is_running "$SERVICE"; then
+    STATUS="running"
+  else
+    STATUS="stopped"
+  fi
 else
-  STATUS="stopped"
+  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  LDAP_HOST="$CONTAINER_NAME"
+  if docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+    STATUS="running"
+  else
+    STATUS="stopped"
+  fi
 fi
 
 # Get linked apps
@@ -62,8 +73,8 @@ if [[ "$FORMAT" == "json" ]]; then
   "service": "$SERVICE",
   "provider": "$PROVIDER",
   "status": "$STATUS",
-  "container_name": "$CONTAINER_NAME",
-  "ldap_url": "ldap://$CONTAINER_NAME:$PROVIDER_LDAP_PORT",
+  "app_name": "${APP_NAME:-}",
+  "ldap_url": "ldap://$LDAP_HOST:$PROVIDER_LDAP_PORT",
   "base_dn": "$BASE_DN",
   "web_url": "$HTTP_URL",
   "linked_apps": "$LINKS"
@@ -73,7 +84,7 @@ else
   echo "=====> Directory service: $SERVICE"
   echo "       Status: $STATUS"
   provider_info "$SERVICE"
-  echo "       LDAP URL: ldap://$CONTAINER_NAME:$PROVIDER_LDAP_PORT"
+  echo "       LDAP URL: ldap://$LDAP_HOST:$PROVIDER_LDAP_PORT"
   echo ""
   echo "       Linked apps:"
   if [[ -s "$SERVICE_ROOT/LINKS" ]]; then

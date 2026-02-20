@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
 # GLAuth Directory Provider
-# Lightweight LDAP server with pluggable backends
+# Lightweight LDAP server with pluggable backends — managed as a Dokku app
 # SC2034 disabled: Variables are used when this script is sourced
 
 # Provider metadata
@@ -13,14 +13,36 @@ PROVIDER_LDAP_PORT="3893"
 PROVIDER_HTTP_PORT=""
 PROVIDER_REQUIRED_CONFIG=""
 
-# Create and start the GLAuth container
+# Get the running container ID for the Dokku app
+# Arguments: SERVICE
+# Output: Docker container ID
+get_running_container_id() {
+  local SERVICE="$1"
+  local APP_NAME
+  APP_NAME=$(get_directory_app_name "$SERVICE")
+  if [[ -z "$APP_NAME" ]]; then
+    local CONTAINER_NAME
+    CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+    docker ps -q -f "name=^${CONTAINER_NAME}$" -f status=running
+    return
+  fi
+  docker ps -q -f "label=com.dokku.app-name=$APP_NAME" -f status=running | head -1
+}
+
+# Create and deploy GLAuth as a Dokku app
 provider_create_container() {
   local SERVICE="$1"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
   local CONFIG_DIR="$SERVICE_ROOT/config"
   local DATA_DIR="$SERVICE_ROOT/data"
+
+  # Determine app name
+  local APP_NAME
+  APP_NAME=$(get_directory_app_name "$SERVICE")
+  if [[ -z "$APP_NAME" ]]; then
+    APP_NAME="dokku-auth-dir-$SERVICE"
+    echo "$APP_NAME" > "$SERVICE_ROOT/APP_NAME"
+  fi
 
   # Generate configuration
   local BASE_DN ADMIN_PASSWORD
@@ -68,33 +90,66 @@ provider_create_container() {
 EOF
   chmod 600 "$CONFIG_DIR/glauth.cfg"
 
-  # Pull image
-  echo "-----> Pulling $PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
-  docker pull "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION" >/dev/null
+  # Create Dokku app if it doesn't exist
+  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+    echo "-----> Creating Dokku app $APP_NAME"
+    "$DOKKU_BIN" apps:create "$APP_NAME"
+  fi
 
-  # Create container
-  echo "-----> Starting GLAuth container"
-  docker run -d \
-    --name "$CONTAINER_NAME" \
-    --restart unless-stopped \
-    --network "$AUTH_NETWORK" \
-    -v "$CONFIG_DIR/glauth.cfg:/app/config/config.cfg:ro" \
-    "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION" >/dev/null
+  # Mount config file
+  echo "-----> Mounting storage volumes"
+  "$DOKKU_BIN" storage:mount "$APP_NAME" "$CONFIG_DIR/glauth.cfg:/app/config/config.cfg:ro" 2>/dev/null || true
 
-  # Wait for container to be ready (GLAuth image is minimal, check process)
+  # Attach to auth network
+  echo "-----> Attaching to network $AUTH_NETWORK"
+  "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$AUTH_NETWORK"
+
+  # Deploy from image
+  echo "-----> Deploying $PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
+  "$DOKKU_BIN" git:from-image "$APP_NAME" "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
+
+  # Wait for app to be running
   echo "-----> Waiting for GLAuth to be ready"
   local retries=30
   while [[ $retries -gt 0 ]]; do
-    if docker top "$CONTAINER_NAME" 2>/dev/null | grep -q glauth; then
+    if provider_is_running "$SERVICE"; then
       break
     fi
-    sleep 1
+    sleep 2
     retries=$((retries - 1))
   done
 
   if [[ $retries -eq 0 ]]; then
     echo "!     GLAuth failed to start" >&2
+    "$DOKKU_BIN" logs "$APP_NAME" --num 10 2>&1 >&2
     return 1
+  fi
+}
+
+# Adopt an existing Dokku app as the GLAuth directory
+# Arguments: SERVICE - name of the service, APP_NAME - name of the existing Dokku app
+provider_adopt_app() {
+  local SERVICE="$1"
+  local APP_NAME="$2"
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+
+  # Validate the Dokku app exists
+  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+    echo "!     Dokku app $APP_NAME does not exist" >&2
+    return 1
+  fi
+
+  # Store app name
+  echo "$APP_NAME" > "$SERVICE_ROOT/APP_NAME"
+
+  # Attach to auth network
+  "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$AUTH_NETWORK"
+
+  # Check if it's running
+  if provider_is_running "$SERVICE"; then
+    echo "       Status: running"
+  else
+    echo "!     Warning: app $APP_NAME is not currently running" >&2
   fi
 }
 
@@ -108,14 +163,21 @@ provider_get_bind_credentials() {
   local SERVICE="$1"
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
   local CONFIG_DIR="$SERVICE_ROOT/config"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+
+  local APP_NAME
+  APP_NAME=$(get_directory_app_name "$SERVICE")
 
   local BASE_DN ADMIN_PASSWORD
   BASE_DN=$(cat "$CONFIG_DIR/BASE_DN")
   ADMIN_PASSWORD=$(cat "$CONFIG_DIR/ADMIN_PASSWORD")
 
-  echo "LDAP_URL=ldap://$CONTAINER_NAME:$PROVIDER_LDAP_PORT"
+  if [[ -n "$APP_NAME" ]]; then
+    echo "LDAP_URL=ldap://$APP_NAME.web:$PROVIDER_LDAP_PORT"
+  else
+    local CONTAINER_NAME
+    CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+    echo "LDAP_URL=ldap://$CONTAINER_NAME:$PROVIDER_LDAP_PORT"
+  fi
   echo "LDAP_BASE_DN=$BASE_DN"
   echo "LDAP_BIND_DN=cn=admin,$BASE_DN"
   echo "LDAP_BIND_PASSWORD=$ADMIN_PASSWORD"
@@ -130,17 +192,17 @@ provider_validate_config() {
 # Verify the service is working
 provider_verify() {
   local SERVICE="$1"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local CONTAINER_ID
+  CONTAINER_ID=$(get_running_container_id "$SERVICE")
 
-  if ! docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+  if [[ -z "$CONTAINER_ID" ]]; then
     echo "!     Container not running" >&2
     return 1
   fi
 
   # GLAuth is a minimal image without netcat/ldapsearch
   # Verify by checking the container is running and the process exists
-  if docker top "$CONTAINER_NAME" 2>/dev/null | grep -q glauth; then
+  if docker top "$CONTAINER_ID" 2>/dev/null | grep -q glauth; then
     echo "       GLAuth process running"
   else
     echo "!     GLAuth process not found" >&2
@@ -155,15 +217,21 @@ provider_info() {
   local SERVICE="$1"
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
   local CONFIG_DIR="$SERVICE_ROOT/config"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local APP_NAME
+  APP_NAME=$(get_directory_app_name "$SERVICE")
 
   local BASE_DN
   BASE_DN=$(cat "$CONFIG_DIR/BASE_DN" 2>/dev/null || echo "(not set)")
 
   echo "       Provider: $PROVIDER_DISPLAY_NAME"
   echo "       Image: $PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
-  echo "       Container: $CONTAINER_NAME"
+  if [[ -n "$APP_NAME" ]]; then
+    echo "       Dokku App: $APP_NAME"
+  else
+    local CONTAINER_NAME
+    CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+    echo "       Container: $CONTAINER_NAME"
+  fi
   echo "       LDAP Port: $PROVIDER_LDAP_PORT"
   echo "       Base DN: $BASE_DN"
   echo ""
@@ -230,31 +298,52 @@ provider_add_user_to_group() {
   return 0
 }
 
-# Destroy the container
+# Destroy the Dokku app (or legacy container)
 provider_destroy() {
   local SERVICE="$1"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local APP_NAME
+  APP_NAME=$(get_directory_app_name "$SERVICE")
 
-  docker stop "$CONTAINER_NAME" 2>/dev/null || true
-  docker rm "$CONTAINER_NAME" 2>/dev/null || true
+  if [[ -n "$APP_NAME" ]] && "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+    echo "       Destroying Dokku app $APP_NAME"
+    "$DOKKU_BIN" apps:destroy "$APP_NAME" --force
+  else
+    local CONTAINER_NAME
+    CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+    docker stop "$CONTAINER_NAME" 2>/dev/null || true
+    docker rm "$CONTAINER_NAME" 2>/dev/null || true
+  fi
 }
 
-# Get container logs
+# Get logs
 provider_logs() {
   local SERVICE="$1"
   shift
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local APP_NAME
+  APP_NAME=$(get_directory_app_name "$SERVICE")
 
-  docker logs "$@" "$CONTAINER_NAME"
+  if [[ -n "$APP_NAME" ]]; then
+    "$DOKKU_BIN" logs "$APP_NAME" "$@"
+  else
+    local CONTAINER_NAME
+    CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+    docker logs "$@" "$CONTAINER_NAME"
+  fi
 }
 
-# Check if container is running
+# Check if running
 provider_is_running() {
   local SERVICE="$1"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local APP_NAME
+  APP_NAME=$(get_directory_app_name "$SERVICE")
 
-  docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .
+  if [[ -n "$APP_NAME" ]]; then
+    local RUNNING
+    RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running 2>/dev/null || echo "false")
+    [[ "$RUNNING" == "true" ]]
+  else
+    local CONTAINER_NAME
+    CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+    docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .
+  fi
 }

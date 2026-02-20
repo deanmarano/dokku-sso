@@ -36,16 +36,14 @@ fi
 
 load_directory_provider "$SERVICE"
 
-CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
-
-# Check if container is running
-if ! docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+# Check if running (Dokku app or legacy container)
+if ! provider_is_running "$SERVICE"; then
   [[ -z "$QUIET" ]] && echo "Service $SERVICE is not running"
   exit 2
 fi
 
 # Verify service is healthy
-if provider_is_running "$SERVICE" && provider_verify "$SERVICE" >/dev/null 2>&1; then
+if provider_verify "$SERVICE" >/dev/null 2>&1; then
   [[ -z "$QUIET" ]] && echo "Service $SERVICE is healthy"
   exit 0
 else

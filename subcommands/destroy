@@ -9,20 +9,30 @@ source "$PLUGIN_BASE_PATH/providers/loader.sh"
 [[ "${1:-}" == auth:* ]] && shift
 
 
-SERVICE="$1"
+SERVICE=""
 FORCE=""
+KEEP_APP=""
 
-# Parse arguments
 for arg in "$@"; do
   case "$arg" in
     -f|--force)
       FORCE="true"
       ;;
+    --keep-app)
+      KEEP_APP="true"
+      ;;
+    *)
+      [[ -z "$SERVICE" ]] && SERVICE="$arg"
+      ;;
   esac
 done
 
 if [[ -z "$SERVICE" ]]; then
-  echo "Usage: dokku auth:destroy <service> [-f|--force]" >&2
+  echo "Usage: dokku auth:destroy <service> [-f|--force] [--keep-app]" >&2
+  echo "" >&2
+  echo "Options:" >&2
+  echo "  -f, --force  Skip confirmation and force destroy even with linked apps" >&2
+  echo "  --keep-app   Unregister without destroying the Dokku app" >&2
   exit 1
 fi
 
@@ -57,17 +67,26 @@ fi
 
 echo "-----> Destroying directory service $SERVICE"
 
-# Load provider and destroy container
+# Load provider and destroy container/app (unless --keep-app)
 load_directory_provider "$SERVICE"
-provider_destroy "$SERVICE"
+if [[ -n "$KEEP_APP" ]]; then
+  APP_NAME=$(get_directory_app_name "$SERVICE")
+  if [[ -n "$APP_NAME" ]]; then
+    echo "       Keeping Dokku app $APP_NAME"
+  fi
+else
+  provider_destroy "$SERVICE"
+fi
 
 # Remove service directory
-# Container may have created files as different user, so try docker cleanup first
-if [[ -d "$SERVICE_ROOT/data" ]]; then
-  docker run --rm -v "$SERVICE_ROOT:/svc" busybox sh -c "rm -rf /svc/*" 2>/dev/null || \
-  docker run --rm -v "$SERVICE_ROOT:/svc" alpine sh -c "rm -rf /svc/*" 2>/dev/null || \
-  rm -rf "${SERVICE_ROOT:?}/"* 2>/dev/null || true
+if [[ -d "$SERVICE_ROOT" ]]; then
+  if ! rm -rf "$SERVICE_ROOT" 2>/dev/null; then
+    if [[ "$(id -u)" != "0" ]]; then
+      sudo rm -rf "$SERVICE_ROOT"
+    else
+      rm -rf "$SERVICE_ROOT" || true
+    fi
+  fi
 fi
-rm -rf "$SERVICE_ROOT" 2>/dev/null || true
 
 echo "-----> Directory service $SERVICE destroyed"

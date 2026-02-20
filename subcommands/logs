@@ -27,23 +27,47 @@ fi
 
 load_directory_provider "$SERVICE"
 
-# Parse docker logs options
-DOCKER_OPTS=()
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -t|--tail)
-      DOCKER_OPTS+=("-f")
-      shift
-      ;;
-    -n)
-      DOCKER_OPTS+=("--tail" "$2")
-      shift 2
-      ;;
-    *)
-      DOCKER_OPTS+=("$1")
-      shift
-      ;;
-  esac
-done
+# Check if this is a Dokku app or legacy Docker container
+APP_NAME=$(get_directory_app_name "$SERVICE")
 
-provider_logs "$SERVICE" "${DOCKER_OPTS[@]}"
+if [[ -n "$APP_NAME" ]]; then
+  # Translate options for dokku logs
+  DOKKU_OPTS=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -t|--tail)
+        DOKKU_OPTS+=("--tail")
+        shift
+        ;;
+      -n)
+        DOKKU_OPTS+=("--num" "$2")
+        shift 2
+        ;;
+      *)
+        DOKKU_OPTS+=("$1")
+        shift
+        ;;
+    esac
+  done
+  provider_logs "$SERVICE" "${DOKKU_OPTS[@]}"
+else
+  # Legacy Docker: translate options for docker logs
+  DOCKER_OPTS=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -t|--tail)
+        DOCKER_OPTS+=("-f")
+        shift
+        ;;
+      -n)
+        DOCKER_OPTS+=("--tail" "$2")
+        shift 2
+        ;;
+      *)
+        DOCKER_OPTS+=("$1")
+        shift
+        ;;
+    esac
+  done
+  provider_logs "$SERVICE" "${DOCKER_OPTS[@]}"
+fi

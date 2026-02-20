@@ -38,12 +38,22 @@ if [[ -d "$PLUGIN_DATA_ROOT/directory" ]]; then
     if [[ -n "$QUIET" ]]; then
       echo "$SERVICE"
     else
-      # Check if running (prefer CONTAINER_NAME file for externally managed services)
-      CONTAINER_NAME=$(cat "$service_dir/CONTAINER_NAME" 2>/dev/null || get_directory_container_name "$SERVICE")
-      if docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
-        STATUS="running"
+      # Check if running (prefer Dokku app, fall back to Docker container)
+      APP_NAME=$(cat "$service_dir/APP_NAME" 2>/dev/null || echo "")
+      if [[ -n "$APP_NAME" ]]; then
+        RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running 2>/dev/null || echo "false")
+        if [[ "$RUNNING" == "true" ]]; then
+          STATUS="running"
+        else
+          STATUS="stopped"
+        fi
       else
-        STATUS="stopped"
+        CONTAINER_NAME=$(cat "$service_dir/CONTAINER_NAME" 2>/dev/null || get_directory_container_name "$SERVICE")
+        if docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+          STATUS="running"
+        else
+          STATUS="stopped"
+        fi
       fi
 
       echo "       $SERVICE ($PROVIDER) - $LINK_COUNT app(s) - $STATUS"

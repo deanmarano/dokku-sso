@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
 # LLDAP Directory Provider
-# Lightweight LDAP server with web UI for user management
+# Lightweight LDAP server with web UI for user management — managed as a Dokku app
 # SC2034 disabled: Variables are used when this script is sourced
 
 # Provider metadata
@@ -13,15 +13,38 @@ PROVIDER_LDAP_PORT="3890"
 PROVIDER_HTTP_PORT="17170"
 PROVIDER_REQUIRED_CONFIG=""  # Auto-generates secrets
 
-# Create and start the LLDAP container
+# Get the running container ID for the Dokku app
+# Arguments: SERVICE
+# Output: Docker container ID
+get_running_container_id() {
+  local SERVICE="$1"
+  local APP_NAME
+  APP_NAME=$(get_directory_app_name "$SERVICE")
+  if [[ -z "$APP_NAME" ]]; then
+    # Fall back to legacy container name
+    local CONTAINER_NAME
+    CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+    docker ps -q -f "name=^${CONTAINER_NAME}$" -f status=running
+    return
+  fi
+  docker ps -q -f "label=com.dokku.app-name=$APP_NAME" -f status=running | head -1
+}
+
+# Create and deploy LLDAP as a Dokku app
 # Arguments: SERVICE - name of the service
 provider_create_container() {
   local SERVICE="$1"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
   local CONFIG_DIR="$SERVICE_ROOT/config"
   local DATA_DIR="$SERVICE_ROOT/data"
+
+  # Determine app name
+  local APP_NAME
+  APP_NAME=$(get_directory_app_name "$SERVICE")
+  if [[ -z "$APP_NAME" ]]; then
+    APP_NAME="dokku-auth-dir-$SERVICE"
+    echo "$APP_NAME" > "$SERVICE_ROOT/APP_NAME"
+  fi
 
   # Generate secrets if not already set
   local JWT_SECRET BASE_DN ADMIN_PASSWORD HTTP_URL
@@ -38,34 +61,38 @@ provider_create_container() {
   echo "$HTTP_URL" > "$CONFIG_DIR/HTTP_URL"
   chmod 600 "$CONFIG_DIR"/*
 
-  # Pull image
-  echo "-----> Pulling $PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
-  docker pull "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION" >/dev/null
+  # Create Dokku app if it doesn't exist
+  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+    echo "-----> Creating Dokku app $APP_NAME"
+    "$DOKKU_BIN" apps:create "$APP_NAME"
+  fi
 
-  # Create container
-  # Note: No host port binding - services communicate via docker network
-  # Use 'dokku auth:expose <service>' to expose ports if needed
-  echo "-----> Starting LLDAP container"
-  docker run -d \
-    --name "$CONTAINER_NAME" \
-    --restart unless-stopped \
-    --network "$AUTH_NETWORK" \
-    -v "$DATA_DIR:/data" \
-    -e "LLDAP_JWT_SECRET=$JWT_SECRET" \
-    -e "LLDAP_LDAP_BASE_DN=$BASE_DN" \
-    -e "LLDAP_LDAP_USER_PASS=$ADMIN_PASSWORD" \
-    -e "LLDAP_HTTP_URL=$HTTP_URL" \
-    -e "TZ=${TZ:-UTC}" \
-    "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION" >/dev/null
+  # Mount data directory
+  echo "-----> Mounting storage volumes"
+  "$DOKKU_BIN" storage:mount "$APP_NAME" "$DATA_DIR:/data" 2>/dev/null || true
 
-  # Wait for container to be ready
+  # Set environment variables
+  echo "-----> Setting environment variables"
+  "$DOKKU_BIN" config:set --no-restart "$APP_NAME" \
+    LLDAP_JWT_SECRET="$JWT_SECRET" \
+    LLDAP_LDAP_BASE_DN="$BASE_DN" \
+    LLDAP_LDAP_USER_PASS="$ADMIN_PASSWORD" \
+    LLDAP_HTTP_URL="$HTTP_URL" \
+    TZ="${TZ:-UTC}"
+
+  # Attach to auth network
+  echo "-----> Attaching to network $AUTH_NETWORK"
+  "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$AUTH_NETWORK"
+
+  # Deploy from image
+  echo "-----> Deploying $PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
+  "$DOKKU_BIN" git:from-image "$APP_NAME" "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
+
+  # Wait for app to be running
   echo "-----> Waiting for LLDAP to be ready"
   local retries=30
   while [[ $retries -gt 0 ]]; do
-    # Check if HTTP endpoint is responding
-    if docker exec "$CONTAINER_NAME" curl -sf http://localhost:17170/health 2>/dev/null || \
-       docker exec "$CONTAINER_NAME" wget -q --spider http://localhost:17170/ 2>/dev/null || \
-       docker inspect "$CONTAINER_NAME" --format='{{.State.Health.Status}}' 2>/dev/null | grep -q healthy; then
+    if provider_is_running "$SERVICE"; then
       break
     fi
     sleep 2
@@ -74,11 +101,42 @@ provider_create_container() {
 
   if [[ $retries -eq 0 ]]; then
     echo "!     LLDAP failed to start" >&2
+    "$DOKKU_BIN" logs "$APP_NAME" --num 10 2>&1 >&2
     return 1
   fi
 
+  # Wait a moment for LLDAP HTTP API to be ready
+  sleep 3
+
   # Create default users group
   provider_create_group "$SERVICE" "$DEFAULT_USERS_GROUP" || true
+}
+
+# Adopt an existing Dokku app as the LLDAP directory
+# Arguments: SERVICE - name of the service, APP_NAME - name of the existing Dokku app
+provider_adopt_app() {
+  local SERVICE="$1"
+  local APP_NAME="$2"
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+
+  # Validate the Dokku app exists
+  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+    echo "!     Dokku app $APP_NAME does not exist" >&2
+    return 1
+  fi
+
+  # Store app name
+  echo "$APP_NAME" > "$SERVICE_ROOT/APP_NAME"
+
+  # Attach to auth network
+  "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$AUTH_NETWORK"
+
+  # Check if it's running
+  if provider_is_running "$SERVICE"; then
+    echo "       Status: running"
+  else
+    echo "!     Warning: app $APP_NAME is not currently running" >&2
+  fi
 }
 
 # Get the LDAP port
@@ -93,14 +151,21 @@ provider_get_bind_credentials() {
   local SERVICE="$1"
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
   local CONFIG_DIR="$SERVICE_ROOT/config"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+
+  local APP_NAME
+  APP_NAME=$(get_directory_app_name "$SERVICE")
 
   local BASE_DN ADMIN_PASSWORD
   BASE_DN=$(cat "$CONFIG_DIR/BASE_DN")
   ADMIN_PASSWORD=$(cat "$CONFIG_DIR/ADMIN_PASSWORD")
 
-  echo "LDAP_URL=ldap://$CONTAINER_NAME:$PROVIDER_LDAP_PORT"
+  if [[ -n "$APP_NAME" ]]; then
+    echo "LDAP_URL=ldap://$APP_NAME.web:$PROVIDER_LDAP_PORT"
+  else
+    local CONTAINER_NAME
+    CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+    echo "LDAP_URL=ldap://$CONTAINER_NAME:$PROVIDER_LDAP_PORT"
+  fi
   echo "LDAP_BASE_DN=$BASE_DN"
   echo "LDAP_BIND_DN=uid=admin,ou=people,$BASE_DN"
   echo "LDAP_BIND_PASSWORD=$ADMIN_PASSWORD"
@@ -116,16 +181,16 @@ provider_validate_config() {
 # Verify the service is working
 provider_verify() {
   local SERVICE="$1"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local CONTAINER_ID
+  CONTAINER_ID=$(get_running_container_id "$SERVICE")
 
-  if ! docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+  if [[ -z "$CONTAINER_ID" ]]; then
     echo "!     Container not running" >&2
     return 1
   fi
 
   # Check HTTP port using curl (available in lldap container)
-  if docker exec "$CONTAINER_NAME" curl -sf http://localhost:17170/ >/dev/null 2>&1; then
+  if docker exec "$CONTAINER_ID" curl -sf http://localhost:17170/ >/dev/null 2>&1; then
     echo "       HTTP port responding"
   else
     echo "!     HTTP port not responding" >&2
@@ -144,8 +209,8 @@ provider_info() {
   local SERVICE="$1"
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
   local CONFIG_DIR="$SERVICE_ROOT/config"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local APP_NAME
+  APP_NAME=$(get_directory_app_name "$SERVICE")
 
   local BASE_DN HTTP_URL
   BASE_DN=$(cat "$CONFIG_DIR/BASE_DN" 2>/dev/null || echo "(not set)")
@@ -153,7 +218,13 @@ provider_info() {
 
   echo "       Provider: $PROVIDER_DISPLAY_NAME"
   echo "       Image: $PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
-  echo "       Container: $CONTAINER_NAME"
+  if [[ -n "$APP_NAME" ]]; then
+    echo "       Dokku App: $APP_NAME"
+  else
+    local CONTAINER_NAME
+    CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+    echo "       Container: $CONTAINER_NAME"
+  fi
   echo "       LDAP Port: $PROVIDER_LDAP_PORT"
   echo "       HTTP Port: $PROVIDER_HTTP_PORT"
   echo "       Base DN: $BASE_DN"
@@ -167,14 +238,14 @@ provider_get_token() {
   local SERVICE="$1"
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
   local CONFIG_DIR="$SERVICE_ROOT/config"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local CONTAINER_ID
+  CONTAINER_ID=$(get_running_container_id "$SERVICE")
 
   local ADMIN_PASSWORD
   ADMIN_PASSWORD=$(cat "$CONFIG_DIR/ADMIN_PASSWORD")
 
   # Get token via internal API
-  docker exec "$CONTAINER_NAME" curl -s \
+  docker exec "$CONTAINER_ID" curl -s \
     -X POST "http://localhost:17170/auth/simple/login" \
     -H "Content-Type: application/json" \
     -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASSWORD\"}" \
@@ -186,8 +257,8 @@ provider_get_token() {
 provider_create_group() {
   local SERVICE="$1"
   local GROUP_NAME="$2"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local CONTAINER_ID
+  CONTAINER_ID=$(get_running_container_id "$SERVICE")
 
   local TOKEN
   TOKEN=$(provider_get_token "$SERVICE")
@@ -197,7 +268,7 @@ provider_create_group() {
   fi
 
   local RESPONSE
-  RESPONSE=$(docker exec "$CONTAINER_NAME" curl -s \
+  RESPONSE=$(docker exec "$CONTAINER_ID" curl -s \
     -X POST "http://localhost:17170/api/graphql" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $TOKEN" \
@@ -219,13 +290,13 @@ provider_create_group() {
 provider_get_group_id() {
   local SERVICE="$1"
   local GROUP_NAME="$2"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local CONTAINER_ID
+  CONTAINER_ID=$(get_running_container_id "$SERVICE")
 
   local TOKEN
   TOKEN=$(provider_get_token "$SERVICE")
 
-  docker exec "$CONTAINER_NAME" curl -s \
+  docker exec "$CONTAINER_ID" curl -s \
     -X POST "http://localhost:17170/api/graphql" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $TOKEN" \
@@ -240,8 +311,8 @@ provider_get_group_id() {
 provider_get_group_members() {
   local SERVICE="$1"
   local GROUP_NAME="$2"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local CONTAINER_ID
+  CONTAINER_ID=$(get_running_container_id "$SERVICE")
 
   local TOKEN GROUP_ID
   TOKEN=$(provider_get_token "$SERVICE")
@@ -251,7 +322,7 @@ provider_get_group_members() {
     return 0
   fi
 
-  docker exec "$CONTAINER_NAME" curl -s \
+  docker exec "$CONTAINER_ID" curl -s \
     -X POST "http://localhost:17170/api/graphql" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $TOKEN" \
@@ -265,8 +336,8 @@ provider_add_user_to_group() {
   local SERVICE="$1"
   local USER_ID="$2"
   local GROUP_NAME="$3"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local CONTAINER_ID
+  CONTAINER_ID=$(get_running_container_id "$SERVICE")
 
   local TOKEN GROUP_ID
   TOKEN=$(provider_get_token "$SERVICE")
@@ -277,7 +348,7 @@ provider_add_user_to_group() {
     return 1
   fi
 
-  docker exec "$CONTAINER_NAME" curl -s \
+  docker exec "$CONTAINER_ID" curl -s \
     -X POST "http://localhost:17170/api/graphql" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $TOKEN" \
@@ -285,34 +356,56 @@ provider_add_user_to_group() {
     >/dev/null
 }
 
-# Destroy the container
+# Destroy the Dokku app (or legacy container)
 # Arguments: SERVICE
 provider_destroy() {
   local SERVICE="$1"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local APP_NAME
+  APP_NAME=$(get_directory_app_name "$SERVICE")
 
-  docker stop "$CONTAINER_NAME" 2>/dev/null || true
-  docker rm "$CONTAINER_NAME" 2>/dev/null || true
+  if [[ -n "$APP_NAME" ]] && "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+    echo "       Destroying Dokku app $APP_NAME"
+    "$DOKKU_BIN" apps:destroy "$APP_NAME" --force
+  else
+    # Legacy: stop/remove Docker container
+    local CONTAINER_NAME
+    CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+    docker stop "$CONTAINER_NAME" 2>/dev/null || true
+    docker rm "$CONTAINER_NAME" 2>/dev/null || true
+  fi
 }
 
-# Get container logs
+# Get logs
 # Arguments: SERVICE [OPTIONS]
 provider_logs() {
   local SERVICE="$1"
   shift
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local APP_NAME
+  APP_NAME=$(get_directory_app_name "$SERVICE")
 
-  docker logs "$@" "$CONTAINER_NAME"
+  if [[ -n "$APP_NAME" ]]; then
+    "$DOKKU_BIN" logs "$APP_NAME" "$@"
+  else
+    local CONTAINER_NAME
+    CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+    docker logs "$@" "$CONTAINER_NAME"
+  fi
 }
 
-# Check if container is running
+# Check if running
 # Arguments: SERVICE
 provider_is_running() {
   local SERVICE="$1"
-  local CONTAINER_NAME
-  CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+  local APP_NAME
+  APP_NAME=$(get_directory_app_name "$SERVICE")
 
-  docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .
+  if [[ -n "$APP_NAME" ]]; then
+    local RUNNING
+    RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running 2>/dev/null || echo "false")
+    [[ "$RUNNING" == "true" ]]
+  else
+    local CONTAINER_NAME
+    CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
+    docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .
+  fi
 }
