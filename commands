@@ -5,6 +5,9 @@ set -eo pipefail
 PLUGIN_BASE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$PLUGIN_BASE_PATH/config"
 
+# Only handle auth commands
+[[ " auth:help auth " == *" $1 "* ]] || [[ "$1" == "auth:"* ]] || exit "$DOKKU_NOT_IMPLEMENTED_EXIT"
+
 show_help() {
   cat << EOF
 usage: dokku auth[:COMMAND]
@@ -71,36 +74,29 @@ Frontend providers:  authelia (default), authentik, vouch
 EOF
 }
 
-main() {
-  # Only handle auth commands
-  [[ " auth:help auth " == *" $1 "* ]] || [[ "$1" == "auth:"* ]] || exit "$DOKKU_NOT_IMPLEMENTED_EXIT"
+case "$1" in
+  auth|auth:help)
+    show_help
+    ;;
+  auth:*)
+    subcommand="${1#auth:}"
+    shift
 
-  case "$1" in
-    auth|auth:help)
-      show_help
-      ;;
-    auth:*)
-      subcommand="${1#auth:}"
-      shift
+    # Map subcommands to files (handle nested commands like frontend:create)
+    # Convert colons and hyphens to underscores
+    normalized_subcommand="${subcommand//:/_}"
+    normalized_subcommand="${normalized_subcommand//-/_}"
+    subcommand_file="$PLUGIN_BASE_PATH/subcommands/$normalized_subcommand"
 
-      # Map subcommands to files (handle nested commands like frontend:create)
-      # Convert colons and hyphens to underscores
-      normalized_subcommand="${subcommand//:/_}"
-      normalized_subcommand="${normalized_subcommand//-/_}"
-      subcommand_file="$PLUGIN_BASE_PATH/subcommands/$normalized_subcommand"
-
-      if [[ -x "$subcommand_file" ]]; then
-        exec "$subcommand_file" "$@"
-      else
-        echo "Unknown command: auth:$subcommand" >&2
-        echo "Run 'dokku auth:help' for usage" >&2
-        exit 1
-      fi
-      ;;
-    *)
-      exit "$DOKKU_NOT_IMPLEMENTED_EXIT"
-      ;;
-  esac
-}
-
-main "$@"
+    if [[ -x "$subcommand_file" ]]; then
+      exec "$subcommand_file" "$@"
+    else
+      echo "Unknown command: auth:$subcommand" >&2
+      echo "Run 'dokku auth:help' for usage" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    exit "$DOKKU_NOT_IMPLEMENTED_EXIT"
+    ;;
+esac
