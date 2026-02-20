@@ -1,24 +1,20 @@
 # dokku-auth
 
-LDAP directory and SSO authentication plugin for [Dokku](https://dokku.com/).
+LDAP directory and SSO authentication plugin for [Dokku](https://dokku.com).
 
-## Features
+## Prerequisites
 
-- **Multiple Directory Providers**: LLDAP (default), GLAuth, OpenLDAP
-- **Multiple Frontend Providers**: Authelia (default) for SSO/2FA
-- **OIDC Support**: Enable OpenID Connect for apps
-- **Integration Presets**: Pre-configured settings for popular apps
-- **Simple Linking**: Apps get `LDAP_URL`, `LDAP_BASE_DN`, etc. automatically
-- **Multi-Instance**: Run multiple directory/frontend services simultaneously
-- **Network-based**: Uses Docker networks for stable connections
-- **Default Group Sync**: Users in default group auto-added to new app groups
+- [Dokku](https://dokku.com) 0.34+
+
+## Installation
+
+```bash
+dokku plugin:install https://github.com/deanmarano/dokku-auth.git auth
+```
 
 ## Quick Start
 
 ```bash
-# Install the plugin
-dokku plugin:install https://github.com/deanmarano/dokku-auth.git auth
-
 # Create a directory service (LLDAP by default)
 dokku auth:create production
 
@@ -27,7 +23,6 @@ dokku auth:link production myapp
 dokku ps:restart myapp
 
 # Optionally add SSO with Authelia
-# Adopt an existing Authelia Dokku app:
 dokku auth:frontend:create auth --app authelia
 # Or deploy a new one:
 dokku auth:frontend:create auth
@@ -39,131 +34,60 @@ dokku auth:frontend:apply auth
 dokku auth:frontend:protect auth myapp
 ```
 
-## Tested Integrations
-
-The following applications have been tested with dokku-auth via E2E tests:
-
-| Application | LDAP | OIDC | Forward Auth | Notes |
-|-------------|------|------|--------------|-------|
-| Gitea | ✓ | - | - | Full LDAP authentication |
-| GitLab CE | ✓ | - | - | LDAP via Rails adapter |
-| Grafana | ✓ | ✓ | - | Both LDAP and generic OAuth |
-| Nextcloud | ✓ | - | - | LDAP user backend |
-| Jellyfin | ✓ | - | - | Via LDAP Authentication plugin |
-| Immich | - | ✓ | - | OAuth2/OIDC only |
-| Radarr/Sonarr | - | - | ✓ | Authelia forward auth |
-| Authentik | ✓ | ✓ | - | Alternative frontend provider |
-
-### Integration Presets
-
-Pre-configured settings are available in `integrations/` for:
-
-**Tested (with E2E tests):**
-- **grafana** - LDAP config and OIDC environment variables
-- **gitlab** - LDAP and OIDC Ruby configuration
-- **jellyfin** - LDAP Authentication plugin XML config
-- **immich** - OIDC environment variables
-- **radarr** - Forward auth bypass paths (also works for Sonarr, Lidarr, etc.)
-- **homeassistant** - Forward auth with trusted networks
-
-**Untested - may require additional manual configuration:**
-- **arr** - Generic *arr stack forward auth (Sonarr, Lidarr, Readarr, Prowlarr)
-- **audiobookshelf** - Audiobook server OIDC
-- **bazarr** - Subtitle manager forward auth
-- **bookstack** - Wiki/documentation LDAP and OIDC
-- **calibreweb** - Ebook manager LDAP
-- **emby** - Media server LDAP
-- **gitea** - Git server LDAP and OIDC
-- **guacamole** - Remote desktop gateway LDAP
-- **hedgedoc** - Collaborative markdown LDAP and OIDC
-- **jellyseerr** - Media request manager forward auth
-- **linkding** - Bookmark manager OIDC
-- **matrix** - Chat server (Synapse) OIDC
-- **miniflux** - RSS reader OIDC
-- **navidrome** - Music server forward auth
-- **nextcloud** - Cloud storage LDAP and OIDC
-- **openwebui** - AI chat interface OIDC
-- **outline** - Wiki/knowledge base OIDC
-- **overseerr** - Media request manager forward auth
-- **paperless** - Document manager OIDC
-- **plex** - Media server forward auth
-- **portainer** - Docker management LDAP and OIDC
-- **proxmox** - Virtualization LDAP
-- **syncthing** - File sync forward auth
-- **uptimekuma** - Uptime monitoring forward auth
-- **vaultwarden** - Password manager OIDC
-- **wikijs** - Wiki LDAP and OIDC
-
-> **Note:** Untested integrations were ported from an earlier version and may require
-> adjustments to work with the current plugin. Please report issues or contribute
-> E2E tests to help validate them.
-
 ## Commands
 
 ### Directory Services
 
-```bash
-# Service lifecycle
-dokku auth:create <service>                 # Create directory service
-dokku auth:destroy <service> [-f]           # Delete directory service
-dokku auth:list                             # List all services
-dokku auth:info <service>                   # Show service details
-dokku auth:status <service>                 # Health check
-dokku auth:logs <service> [-t|--tail]       # View logs
-dokku auth:doctor <service> [-v]            # Diagnose issues
-dokku auth:credentials <service>            # Show LDAP bind credentials
-
-# App linking
-dokku auth:link <service> <app>             # Link app to directory
-dokku auth:unlink <service> <app>           # Unlink app
-dokku auth:sync <service>                   # Sync default group to app groups
-
-# Provider management
-dokku auth:providers                        # List available providers
-dokku auth:provider:set <svc> <provider>    # Change provider
-dokku auth:provider:config <svc> KEY=value  # Configure provider
-dokku auth:provider:apply <svc>             # Apply configuration
-```
+| Command | Description |
+|---|---|
+| `auth:create <service>` | Create directory service |
+| `auth:destroy <service> [-f]` | Delete directory service |
+| `auth:list` | List all services |
+| `auth:info <service>` | Show service details |
+| `auth:status <service>` | Health check |
+| `auth:logs <service> [-t]` | View logs |
+| `auth:doctor <service> [-v]` | Diagnose issues |
+| `auth:credentials <service>` | Show LDAP bind credentials |
+| `auth:link <service> <app>` | Link app to directory |
+| `auth:unlink <service> <app>` | Unlink app |
+| `auth:sync <service>` | Sync default group to app groups |
+| `auth:providers` | List available providers |
+| `auth:provider:set <svc> <provider>` | Change provider |
+| `auth:provider:config <svc> KEY=value` | Configure provider |
+| `auth:provider:apply <svc>` | Apply configuration |
 
 ### Frontend Services (SSO/2FA)
 
-```bash
-# Service lifecycle
-dokku auth:frontend:create <service> [--app <dokku-app>]  # Create or adopt
-dokku auth:frontend:destroy <service> [-f] [--keep-app]   # Delete service
-dokku auth:frontend:list                    # List all frontend services
-dokku auth:frontend:info <service>          # Show service details
-dokku auth:frontend:status <service>        # Health check
-dokku auth:frontend:logs <service>          # View logs
-
-# Directory integration
-dokku auth:frontend:use-directory <svc> <dir-svc>  # Link to directory
-
-# App protection
-dokku auth:frontend:protect <svc> <app>     # Add SSO protection
-dokku auth:frontend:unprotect <svc> <app>   # Remove protection
-
-# Provider management
-dokku auth:frontend:provider:set <svc> <prov>   # Change provider
-dokku auth:frontend:config <svc> KEY=value      # Configure provider
-dokku auth:frontend:apply <svc>                 # Apply configuration
-```
+| Command | Description |
+|---|---|
+| `auth:frontend:create <service> [--app <app>]` | Create or adopt frontend service |
+| `auth:frontend:destroy <service> [-f] [--keep-app]` | Delete frontend service |
+| `auth:frontend:list` | List all frontend services |
+| `auth:frontend:info <service>` | Show service details |
+| `auth:frontend:status <service>` | Health check |
+| `auth:frontend:logs <service>` | View logs |
+| `auth:frontend:use-directory <svc> <dir-svc>` | Link to directory |
+| `auth:frontend:protect <svc> <app>` | Add SSO protection |
+| `auth:frontend:unprotect <svc> <app>` | Remove protection |
+| `auth:frontend:provider:set <svc> <prov>` | Change provider |
+| `auth:frontend:config <svc> KEY=value` | Configure provider |
+| `auth:frontend:apply <svc>` | Apply configuration |
 
 ### OIDC (OpenID Connect)
 
-```bash
-dokku auth:oidc:enable <frontend-svc>                          # Enable OIDC
-dokku auth:oidc:disable <frontend-svc>                         # Disable OIDC
-dokku auth:oidc:add-client <svc> <id> [secret] [redirect-uri]  # Add client
-dokku auth:oidc:remove-client <svc> <client-id>                # Remove client
-dokku auth:oidc:list <svc>                                     # List clients
-```
+| Command | Description |
+|---|---|
+| `auth:oidc:enable <frontend-svc>` | Enable OIDC |
+| `auth:oidc:disable <frontend-svc>` | Disable OIDC |
+| `auth:oidc:add-client <svc> <id> [secret] [redirect-uri]` | Add client |
+| `auth:oidc:remove-client <svc> <client-id>` | Remove client |
+| `auth:oidc:list <svc>` | List clients |
 
 ## App Environment Variables
 
 When linked to a directory service, apps receive:
 
-```bash
+```
 LDAP_URL=ldap://dokku.auth.directory.production:3890
 LDAP_BASE_DN=dc=dokku,dc=local
 LDAP_BIND_DN=uid=admin,ou=people,dc=dokku,dc=local
@@ -172,158 +96,48 @@ LDAP_BIND_PASSWORD=<auto-generated>
 
 When protected by a frontend service:
 
-```bash
+```
 AUTHELIA_DOMAIN=auth.example.com
 ```
 
 ## Directory Providers
 
-### LLDAP (Default)
-
-Lightweight LDAP server with a web UI for user management.
-
-```bash
-dokku auth:create myservice
-# Web UI available at HTTP port configured via HTTP_URL
-```
-
-### GLAuth
-
-Minimal LDAP server with config-file backends. Good for read-heavy workloads.
-
-```bash
-dokku auth:create myservice
-dokku auth:provider:set myservice glauth
-dokku auth:provider:apply myservice
-```
-
-Note: GLAuth requires config file edits for user/group management.
-
-### OpenLDAP
-
-Full-featured LDAP server for complex requirements.
-
-```bash
-dokku auth:create myservice
-dokku auth:provider:set myservice openldap
-dokku auth:provider:config myservice DOMAIN=example.com ORGANISATION=MyOrg
-dokku auth:provider:apply myservice
-```
+| Provider | Description |
+|---|---|
+| **LLDAP** (default) | Lightweight LDAP server with web UI for user management |
+| **GLAuth** | Minimal LDAP server with config-file backends |
+| **OpenLDAP** | Full-featured LDAP server for complex requirements |
 
 ## Frontend Providers
 
-### Authelia (Default)
+| Provider | Description |
+|---|---|
+| **Authelia** (default) | SSO portal with 2FA support (TOTP, WebAuthn) |
+| **Authentik** | Full-featured identity provider with advanced features |
 
-SSO portal with 2FA support (TOTP, WebAuthn). Managed as a Dokku app.
+## Integration Presets
 
-```bash
-# Adopt an existing Authelia Dokku app
-dokku auth:frontend:create auth --app authelia
+Pre-configured settings are available in `integrations/` for popular apps:
 
-# Or deploy a new one from scratch
-dokku auth:frontend:create auth
-dokku auth:frontend:config auth DOMAIN=auth.example.com
-dokku auth:frontend:use-directory auth production
-dokku auth:frontend:apply auth
-```
+**Tested (with E2E tests):** Grafana, GitLab, Jellyfin, Immich, Radarr, Home Assistant
 
-### Authentik
-
-Full-featured identity provider with advanced features.
-
-```bash
-dokku auth:frontend:create auth
-dokku auth:frontend:provider:set auth authentik
-dokku auth:frontend:config auth DOMAIN=auth.example.com
-dokku auth:frontend:use-directory auth production
-dokku auth:frontend:apply auth
-```
-
-## Multiple Instances
-
-Run separate services for different environments:
-
-```bash
-# Production LLDAP
-dokku auth:create production
-
-# Staging LLDAP (separate users)
-dokku auth:create staging
-
-# Link apps to appropriate services
-dokku auth:link production myapp
-dokku auth:link staging myapp-staging
-
-# Separate frontends too
-dokku auth:frontend:create prod-auth
-dokku auth:frontend:create staging-auth
-```
+**Untested:** Bookstack, Calibre-Web, Gitea, Guacamole, HedgeDoc, Linkding, Matrix, Miniflux, Navidrome, Nextcloud, OpenWebUI, Outline, Paperless, Portainer, Proxmox, Vaultwarden, Wiki.js, and more.
 
 ## Default User Group
 
-Users added to `dokku-auth-default-users` are automatically synced to all app groups when you run:
+Users added to `dokku-auth-default-users` are automatically synced to all app groups:
 
 ```bash
 dokku auth:sync production
 ```
 
-This makes it easy to grant new users access to all linked apps.
-
 ## Development
 
 ```bash
-# Install test dependencies
 npm install
-
-# Run tests in Docker (isolated)
-make test-docker
-
-# Or run against local Dokku
-make test
-
-# Run specific test file
-npm test -- tests/integration/directory-lldap.test.ts
-
-# Run E2E tests (requires Dokku)
-npx playwright test --project=grafana-ldap
-```
-
-### Test Coverage
-
-The plugin includes comprehensive tests:
-
-- **Unit tests**: Core logic validation
-- **Integration tests**: Dokku plugin commands
-- **E2E tests**: Full application integrations (18 test suites)
-
-## Architecture
-
-```
-dokku-auth/
-├── commands              # Main command dispatcher
-├── config                # Plugin configuration
-├── install               # Post-install hook
-├── integrations/         # App integration presets
-│   ├── grafana.sh
-│   ├── gitlab.sh
-│   ├── jellyfin.sh
-│   ├── immich.sh
-│   ├── radarr.sh
-│   └── homeassistant.sh
-├── providers/
-│   ├── loader.sh        # Provider loading logic
-│   ├── directory/       # Directory providers
-│   │   ├── lldap/
-│   │   ├── glauth/
-│   │   └── openldap/
-│   └── frontend/        # Frontend providers
-│       ├── authelia/
-│       └── authentik/
-├── subcommands/         # Individual commands
-└── tests/               # TypeScript tests
-    ├── unit/
-    ├── integration/
-    └── e2e/
+make test-docker    # Run tests in Docker (isolated)
+make test           # Run against local Dokku
+npx playwright test --project=grafana-ldap  # Run E2E tests
 ```
 
 ## License
