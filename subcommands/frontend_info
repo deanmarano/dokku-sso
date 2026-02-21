@@ -36,10 +36,10 @@ echo ""
 echo "-----> Status"
 if [[ -n "$APP_NAME" ]]; then
   # Dokku app mode
-  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" < /dev/null 2>/dev/null; then
     echo "       App: $APP_NAME (not found)"
   else
-    RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running 2>/dev/null || echo "false")
+    RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running < /dev/null 2>/dev/null || echo "false")
     if [[ "$RUNNING" == "true" ]]; then
       echo "       App: running"
     else

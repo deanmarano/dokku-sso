@@ -398,7 +398,7 @@ provider_protect_app() {
   # Set environment for forward auth proxy
   "$DOKKU_BIN" config:set --no-restart "$APP" \
     AUTHENTIK_URL="http://$SERVER_CONTAINER:9000" \
-    AUTHENTIK_DOMAIN="$DOMAIN"
+    AUTHENTIK_DOMAIN="$DOMAIN" < /dev/null
 
   # Add to protected apps list
   echo "$APP" >> "$SERVICE_ROOT/PROTECTED"
@@ -406,7 +406,7 @@ provider_protect_app() {
 
   # Connect app to auth network
   local APP_CONTAINER
-  APP_CONTAINER=$("$DOKKU_BIN" ps:report "$APP" --ps-running-container 2>/dev/null || echo "")
+  APP_CONTAINER=$("$DOKKU_BIN" ps:report "$APP" --ps-running-container < /dev/null 2>/dev/null || echo "")
   if [[ -n "$APP_CONTAINER" ]]; then
     docker network connect "$AUTH_NETWORK" "$APP_CONTAINER" 2>/dev/null || true
   fi
@@ -449,7 +449,7 @@ error_page 401 = @forward_auth_login;
 EOF
 
   # Rebuild nginx config (triggers nginx-pre-reload hook)
-  "$DOKKU_BIN" proxy:build-config "$APP" 2>/dev/null || true
+  "$DOKKU_BIN" proxy:build-config "$APP" < /dev/null 2>/dev/null || true
 
   echo "       App protected. Configure forward auth in Authentik:"
   echo "       1. Create an Application for '$APP'"
@@ -462,7 +462,7 @@ provider_unprotect_app() {
   local APP="$2"
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
 
-  "$DOKKU_BIN" config:unset --no-restart "$APP" AUTHENTIK_URL AUTHENTIK_DOMAIN 2>/dev/null || true
+  "$DOKKU_BIN" config:unset --no-restart "$APP" AUTHENTIK_URL AUTHENTIK_DOMAIN < /dev/null 2>/dev/null || true
 
   if [[ -f "$SERVICE_ROOT/PROTECTED" ]]; then
     grep -v "^${APP}$" "$SERVICE_ROOT/PROTECTED" > "$SERVICE_ROOT/PROTECTED.tmp" || true
@@ -474,7 +474,7 @@ provider_unprotect_app() {
   rm -f "$DOKKU_ROOT/$APP/nginx.conf.d/forward-auth.conf"
 
   # Rebuild nginx config
-  "$DOKKU_BIN" proxy:build-config "$APP" 2>/dev/null || true
+  "$DOKKU_BIN" proxy:build-config "$APP" < /dev/null 2>/dev/null || true
 }
 
 # Destroy the containers and related resources

@@ -28,8 +28,8 @@ for service_dir in "$FRONTEND_DIR"/*/; do
   APP_NAME=$(get_frontend_app_name "$SERVICE")
   if [[ -n "$APP_NAME" ]]; then
     # Dokku app mode
-    if "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
-      RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running 2>/dev/null || echo "false")
+    if "$DOKKU_BIN" apps:exists "$APP_NAME" < /dev/null 2>/dev/null; then
+      RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running < /dev/null 2>/dev/null || echo "false")
       if [[ "$RUNNING" == "true" ]]; then
         STATUS="running"
       else

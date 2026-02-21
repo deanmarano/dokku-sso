@@ -41,7 +41,7 @@ if [[ -d "$PLUGIN_DATA_ROOT/directory" ]]; then
       # Check if running (prefer Dokku app, fall back to Docker container)
       APP_NAME=$(cat "$service_dir/APP_NAME" 2>/dev/null || echo "")
       if [[ -n "$APP_NAME" ]]; then
-        RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running 2>/dev/null || echo "false")
+        RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running < /dev/null 2>/dev/null || echo "false")
         if [[ "$RUNNING" == "true" ]]; then
           STATUS="running"
         else

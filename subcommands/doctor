@@ -62,7 +62,7 @@ if [[ -n "$APP_NAME" ]]; then
 
   # Check 3: App exists
   echo -n "       Checking Dokku app exists... "
-  if "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+  if "$DOKKU_BIN" apps:exists "$APP_NAME" < /dev/null 2>/dev/null; then
     echo "OK ($APP_NAME)"
   else
     echo "FAILED - app $APP_NAME not found"
@@ -90,12 +90,12 @@ if [[ -n "$APP_NAME" ]]; then
 
   # Check 6: App attached to auth network
   echo -n "       Checking network attachment... "
-  NETWORK_SETTING=$("$DOKKU_BIN" network:report "$APP_NAME" --network-attach-post-deploy 2>/dev/null || echo "")
+  NETWORK_SETTING=$("$DOKKU_BIN" network:report "$APP_NAME" --network-attach-post-deploy < /dev/null 2>/dev/null || echo "")
   if echo "$NETWORK_SETTING" | grep -q "$AUTH_NETWORK"; then
     echo "OK"
   else
     echo "FAILED - attaching to network"
-    "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$AUTH_NETWORK"
+    "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$AUTH_NETWORK" < /dev/null
     ISSUES=$((ISSUES + 1))
   fi
 
@@ -196,14 +196,14 @@ if [[ -s "$SERVICE_ROOT/LINKS" ]]; then
     echo -n "         $app: "
 
     # Check if app exists
-    if ! "$DOKKU_BIN" apps:exists "$app" 2>/dev/null; then
+    if ! "$DOKKU_BIN" apps:exists "$app" < /dev/null 2>/dev/null; then
       echo "app not found"
       ISSUES=$((ISSUES + 1))
       continue
     fi
 
     # Check if app has LDAP config
-    if "$DOKKU_BIN" config:get "$app" LDAP_URL >/dev/null 2>&1; then
+    if "$DOKKU_BIN" config:get "$app" LDAP_URL < /dev/null >/dev/null 2>&1; then
       echo "OK"
     else
       echo "missing LDAP config"
@@ -217,7 +217,7 @@ if [[ -n "$VERBOSE" ]]; then
   echo ""
   echo "       Recent logs:"
   if [[ -n "$APP_NAME" ]]; then
-    "$DOKKU_BIN" logs "$APP_NAME" --num 20 2>&1 | sed 's/^/         /'
+    "$DOKKU_BIN" logs "$APP_NAME" --num 20 < /dev/null 2>&1 | sed 's/^/         /'
   else
     CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
     docker logs --tail 20 "$CONTAINER_NAME" 2>&1 | sed 's/^/         /'

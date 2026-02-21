@@ -27,11 +27,11 @@ APP_NAME=$(get_frontend_app_name "$SERVICE")
 
 if [[ -n "$APP_NAME" ]]; then
   # Dokku app mode
-  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" < /dev/null 2>/dev/null; then
     echo "Service $SERVICE: Dokku app $APP_NAME not found"
     exit 1
   fi
-  RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running 2>/dev/null || echo "false")
+  RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running < /dev/null 2>/dev/null || echo "false")
   if [[ "$RUNNING" == "true" ]]; then
     echo "Service $SERVICE is running (app: $APP_NAME)"
     exit 0

@@ -62,14 +62,14 @@ provider_create_container() {
   chmod 600 "$CONFIG_DIR"/*
 
   # Create Dokku app if it doesn't exist
-  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" < /dev/null 2>/dev/null; then
     echo "-----> Creating Dokku app $APP_NAME"
-    "$DOKKU_BIN" apps:create "$APP_NAME"
+    "$DOKKU_BIN" apps:create "$APP_NAME" < /dev/null
   fi
 
   # Mount data directory
   echo "-----> Mounting storage volumes"
-  "$DOKKU_BIN" storage:mount "$APP_NAME" "$DATA_DIR:/data" 2>/dev/null || true
+  "$DOKKU_BIN" storage:mount "$APP_NAME" "$DATA_DIR:/data" < /dev/null 2>/dev/null || true
 
   # Set environment variables
   echo "-----> Setting environment variables"
@@ -78,15 +78,15 @@ provider_create_container() {
     LLDAP_LDAP_BASE_DN="$BASE_DN" \
     LLDAP_LDAP_USER_PASS="$ADMIN_PASSWORD" \
     LLDAP_HTTP_URL="$HTTP_URL" \
-    TZ="${TZ:-UTC}"
+    TZ="${TZ:-UTC}" < /dev/null
 
   # Attach to auth network
   echo "-----> Attaching to network $AUTH_NETWORK"
-  "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$AUTH_NETWORK"
+  "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$AUTH_NETWORK" < /dev/null
 
   # Deploy from image
   echo "-----> Deploying $PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
-  "$DOKKU_BIN" git:from-image "$APP_NAME" "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
+  "$DOKKU_BIN" git:from-image "$APP_NAME" "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION" < /dev/null
 
   # Wait for app to be running
   echo "-----> Waiting for LLDAP to be ready"
@@ -101,7 +101,7 @@ provider_create_container() {
 
   if [[ $retries -eq 0 ]]; then
     echo "!     LLDAP failed to start" >&2
-    "$DOKKU_BIN" logs "$APP_NAME" --num 10 2>&1 >&2
+    "$DOKKU_BIN" logs "$APP_NAME" --num 10 < /dev/null 2>&1 >&2
     return 1
   fi
 
@@ -120,7 +120,7 @@ provider_adopt_app() {
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
 
   # Validate the Dokku app exists
-  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" < /dev/null 2>/dev/null; then
     echo "!     Dokku app $APP_NAME does not exist" >&2
     return 1
   fi
@@ -129,7 +129,7 @@ provider_adopt_app() {
   echo "$APP_NAME" > "$SERVICE_ROOT/APP_NAME"
 
   # Attach to auth network
-  "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$AUTH_NETWORK"
+  "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$AUTH_NETWORK" < /dev/null
 
   # Check if it's running
   if provider_is_running "$SERVICE"; then
@@ -363,9 +363,9 @@ provider_destroy() {
   local APP_NAME
   APP_NAME=$(get_directory_app_name "$SERVICE")
 
-  if [[ -n "$APP_NAME" ]] && "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+  if [[ -n "$APP_NAME" ]] && "$DOKKU_BIN" apps:exists "$APP_NAME" < /dev/null 2>/dev/null; then
     echo "       Destroying Dokku app $APP_NAME"
-    "$DOKKU_BIN" apps:destroy "$APP_NAME" --force
+    "$DOKKU_BIN" apps:destroy "$APP_NAME" --force < /dev/null
   else
     # Legacy: stop/remove Docker container
     local CONTAINER_NAME
@@ -384,7 +384,7 @@ provider_logs() {
   APP_NAME=$(get_directory_app_name "$SERVICE")
 
   if [[ -n "$APP_NAME" ]]; then
-    "$DOKKU_BIN" logs "$APP_NAME" "$@"
+    "$DOKKU_BIN" logs "$APP_NAME" "$@" < /dev/null
   else
     local CONTAINER_NAME
     CONTAINER_NAME=$(get_directory_container_name "$SERVICE")
@@ -401,7 +401,7 @@ provider_is_running() {
 
   if [[ -n "$APP_NAME" ]]; then
     local RUNNING
-    RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running 2>/dev/null || echo "false")
+    RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running < /dev/null 2>/dev/null || echo "false")
     [[ "$RUNNING" == "true" ]]
   else
     local CONTAINER_NAME

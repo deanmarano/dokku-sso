@@ -66,28 +66,28 @@ provider_create_container() {
   PROVIDER_IMAGE_VERSION="latest"
 
   # Create Dokku app if it doesn't exist
-  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" < /dev/null 2>/dev/null; then
     echo "-----> Creating Dokku app $APP_NAME"
-    "$DOKKU_BIN" apps:create "$APP_NAME"
+    "$DOKKU_BIN" apps:create "$APP_NAME" < /dev/null
   fi
 
   # Mount config and data directories
   echo "-----> Mounting storage volumes"
-  "$DOKKU_BIN" storage:mount "$APP_NAME" "$CONFIG_DIR/configuration.yml:/config/configuration.yml" 2>/dev/null || true
-  "$DOKKU_BIN" storage:mount "$APP_NAME" "$DATA_DIR:/data" 2>/dev/null || true
+  "$DOKKU_BIN" storage:mount "$APP_NAME" "$CONFIG_DIR/configuration.yml:/config/configuration.yml" < /dev/null 2>/dev/null || true
+  "$DOKKU_BIN" storage:mount "$APP_NAME" "$DATA_DIR:/data" < /dev/null 2>/dev/null || true
 
   # Set environment variables
   echo "-----> Setting environment variables"
   "$DOKKU_BIN" config:set --no-restart "$APP_NAME" \
-    TZ="${TZ:-UTC}"
+    TZ="${TZ:-UTC}" < /dev/null
 
   # Set domain
   echo "-----> Setting domain $DOMAIN"
-  "$DOKKU_BIN" domains:set "$APP_NAME" "$DOMAIN"
+  "$DOKKU_BIN" domains:set "$APP_NAME" "$DOMAIN" < /dev/null
 
   # Deploy from image
   echo "-----> Deploying $PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
-  "$DOKKU_BIN" git:from-image "$APP_NAME" "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION" || true
+  "$DOKKU_BIN" git:from-image "$APP_NAME" "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION" < /dev/null
 
   # Wait for app to be running
   echo "-----> Waiting for Authelia to be ready"
@@ -102,7 +102,7 @@ provider_create_container() {
 
   if [[ $retries -eq 0 ]]; then
     echo "!     Authelia failed to start" >&2
-    "$DOKKU_BIN" logs "$APP_NAME" --num 10 2>&1 >&2
+    "$DOKKU_BIN" logs "$APP_NAME" --num 10 < /dev/null 2>&1 >&2
     return 1
   fi
 }
@@ -116,7 +116,7 @@ provider_adopt_app() {
   local CONFIG_DIR="$SERVICE_ROOT/config"
 
   # Validate the Dokku app exists
-  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+  if ! "$DOKKU_BIN" apps:exists "$APP_NAME" < /dev/null 2>/dev/null; then
     echo "!     Dokku app $APP_NAME does not exist" >&2
     return 1
   fi
@@ -126,7 +126,7 @@ provider_adopt_app() {
 
   # Read domain from the Dokku app
   local DOMAIN
-  DOMAIN=$("$DOKKU_BIN" domains:report "$APP_NAME" --domains-app-vhosts 2>/dev/null || true)
+  DOMAIN=$("$DOKKU_BIN" domains:report "$APP_NAME" --domains-app-vhosts < /dev/null 2>/dev/null || true)
   if [[ -n "$DOMAIN" ]]; then
     mkdir -p "$CONFIG_DIR"
     echo "$DOMAIN" > "$CONFIG_DIR/DOMAIN"
@@ -447,7 +447,8 @@ provider_protect_app() {
 
   # Set AUTHELIA_DOMAIN env var on the protected app
   "$DOKKU_BIN" config:set --no-restart "$APP" \
-    AUTHELIA_DOMAIN="$DOMAIN"
+    AUTHELIA_DOMAIN="$DOMAIN" \
+    < /dev/null
 
   # Add to protected apps list
   echo "$APP" >> "$SERVICE_ROOT/PROTECTED"
@@ -491,7 +492,7 @@ error_page 401 = @forward_auth_login;
 EOF
 
   # Rebuild nginx config (triggers nginx-pre-reload hook)
-  "$DOKKU_BIN" proxy:build-config "$APP" 2>/dev/null || true
+  "$DOKKU_BIN" proxy:build-config "$APP" < /dev/null 2>/dev/null || true
 }
 
 # Remove protection from an app
@@ -501,7 +502,7 @@ provider_unprotect_app() {
   local SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
 
   # Remove Authelia config
-  "$DOKKU_BIN" config:unset --no-restart "$APP" AUTHELIA_DOMAIN 2>/dev/null || true
+  "$DOKKU_BIN" config:unset --no-restart "$APP" AUTHELIA_DOMAIN < /dev/null 2>/dev/null || true
 
   # Remove from protected apps list
   if [[ -f "$SERVICE_ROOT/PROTECTED" ]]; then
@@ -514,7 +515,7 @@ provider_unprotect_app() {
   rm -f "$DOKKU_ROOT/$APP/nginx.conf.d/forward-auth.conf"
 
   # Rebuild nginx config
-  "$DOKKU_BIN" proxy:build-config "$APP" 2>/dev/null || true
+  "$DOKKU_BIN" proxy:build-config "$APP" < /dev/null 2>/dev/null || true
 }
 
 # Enable OIDC
@@ -596,9 +597,9 @@ provider_destroy() {
   local APP_NAME
   APP_NAME=$(get_frontend_app_name "$SERVICE")
 
-  if [[ -n "$APP_NAME" ]] && "$DOKKU_BIN" apps:exists "$APP_NAME" 2>/dev/null; then
+  if [[ -n "$APP_NAME" ]] && "$DOKKU_BIN" apps:exists "$APP_NAME" < /dev/null 2>/dev/null; then
     echo "       Destroying Dokku app $APP_NAME"
-    "$DOKKU_BIN" apps:destroy "$APP_NAME" --force
+    "$DOKKU_BIN" apps:destroy "$APP_NAME" --force < /dev/null
   fi
 }
 
@@ -614,7 +615,7 @@ provider_logs() {
     return 1
   fi
 
-  "$DOKKU_BIN" logs "$APP_NAME" "$@"
+  "$DOKKU_BIN" logs "$APP_NAME" "$@" < /dev/null
 }
 
 # Check if the Dokku app is running
@@ -628,6 +629,6 @@ provider_is_running() {
   fi
 
   local RUNNING
-  RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running 2>/dev/null || echo "false")
+  RUNNING=$("$DOKKU_BIN" ps:report "$APP_NAME" --running < /dev/null 2>/dev/null || echo "false")
   [[ "$RUNNING" == "true" ]]
 }

@@ -29,7 +29,7 @@ if ! directory_service_exists "$SERVICE"; then
 fi
 
 # Check if app exists
-if ! "$DOKKU_BIN" apps:exists "$APP" 2>/dev/null; then
+if ! "$DOKKU_BIN" apps:exists "$APP" < /dev/null 2>/dev/null; then
   echo "!     App $APP does not exist" >&2
   exit 1
 fi
@@ -58,7 +58,7 @@ echo "-----> Setting LDAP environment variables"
   "LDAP_BASE_DN=${CREDS[LDAP_BASE_DN]}" \
   "LDAP_BIND_DN=${CREDS[LDAP_BIND_DN]}" \
   "LDAP_BIND_PASSWORD=${CREDS[LDAP_BIND_PASSWORD]}" \
-  >/dev/null
+  < /dev/null >/dev/null
 
 echo "       LDAP_URL=${CREDS[LDAP_URL]}"
 echo "       LDAP_BASE_DN=${CREDS[LDAP_BASE_DN]}"
@@ -67,7 +67,7 @@ echo "       LDAP_BIND_PASSWORD=<hidden>"
 
 # Attach app to auth network
 echo "-----> Attaching $APP to auth network"
-"$DOKKU_BIN" network:set "$APP" attach-post-deploy "$AUTH_NETWORK" 2>/dev/null || true
+"$DOKKU_BIN" network:set "$APP" attach-post-deploy "$AUTH_NETWORK" < /dev/null 2>/dev/null || true
 
 # Create app-specific group
 GROUP_NAME="${APP}_users"
