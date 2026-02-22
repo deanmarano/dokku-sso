@@ -31,6 +31,7 @@ dokku auth directory commands:
     auth:status <service> [-q|--quiet]           show status (exit: 0=healthy, 2=down)
     auth:doctor <service>                        diagnose and fix issues
 
+    auth:create-user <svc> <user> <email> <pass>  create a user in directory
     auth:link <service> <app>                    link app to directory service
     auth:unlink <service> <app>                  unlink app from directory
     auth:sync <service>                          sync default group to app groups

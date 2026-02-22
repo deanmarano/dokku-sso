@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == auth:* ]] && shift
+
+
+SERVICE="$1"
+USERNAME="$2"
+EMAIL="$3"
+PASSWORD="$4"
+
+if [[ -z "$SERVICE" ]] || [[ -z "$USERNAME" ]] || [[ -z "$EMAIL" ]] || [[ -z "$PASSWORD" ]]; then
+  echo "Usage: dokku auth:create-user <service> <username> <email> <password>" >&2
+  exit 1
+fi
+
+if ! directory_service_exists "$SERVICE"; then
+  echo "!     Service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+load_directory_provider "$SERVICE"
+
+echo "-----> Creating user $USERNAME in $SERVICE"
+provider_create_user "$SERVICE" "$USERNAME" "$EMAIL" "$PASSWORD"
+
+# Add to default users group
+provider_add_user_to_group "$SERVICE" "$USERNAME" "$DEFAULT_USERS_GROUP" 2>/dev/null || true
+
+echo "       User $USERNAME created"

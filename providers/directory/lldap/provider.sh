@@ -284,6 +284,52 @@ provider_create_group() {
   fi
 }
 
+# Create a user in LLDAP
+# Arguments: SERVICE USERNAME EMAIL PASSWORD
+provider_create_user() {
+  local SERVICE="$1"
+  local USERNAME="$2"
+  local EMAIL="$3"
+  local PASSWORD="$4"
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+  local CONFIG_DIR="$SERVICE_ROOT/config"
+  local CONTAINER_ID
+  CONTAINER_ID=$(get_running_container_id "$SERVICE")
+
+  local TOKEN ADMIN_PASSWORD
+  TOKEN=$(provider_get_token "$SERVICE")
+  ADMIN_PASSWORD=$(cat "$CONFIG_DIR/ADMIN_PASSWORD")
+
+  if [[ -z "$TOKEN" ]]; then
+    echo "!     Failed to get authentication token" >&2
+    return 1
+  fi
+
+  # Create user via GraphQL
+  local RESPONSE
+  RESPONSE=$(docker exec "$CONTAINER_ID" curl -s \
+    -X POST "http://localhost:17170/api/graphql" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $TOKEN" \
+    -d "{\"query\":\"mutation { createUser(user: {id: \\\"$USERNAME\\\", email: \\\"$EMAIL\\\"}) { id } }\"}")
+
+  if ! echo "$RESPONSE" | grep -q '"createUser"'; then
+    if ! echo "$RESPONSE" | grep -q "already exists"; then
+      echo "!     Failed to create user: $RESPONSE" >&2
+      return 1
+    fi
+  fi
+
+  # Set password using lldap_set_password tool
+  docker exec "$CONTAINER_ID" /app/lldap_set_password \
+    --base-url http://localhost:17170 \
+    --admin-username admin --admin-password "$ADMIN_PASSWORD" \
+    --username "$USERNAME" --password "$PASSWORD" 2>/dev/null || {
+    echo "!     Failed to set password for $USERNAME" >&2
+    return 1
+  }
+}
+
 # Get group ID by name
 # Arguments: SERVICE GROUP_NAME
 # Output: Group ID (number)

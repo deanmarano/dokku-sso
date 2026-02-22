@@ -239,6 +239,48 @@ provider_info() {
   echo "       Group/user management requires editing glauth.cfg"
 }
 
+# Create a user (GLAuth requires config file edits)
+# Arguments: SERVICE USERNAME EMAIL PASSWORD
+provider_create_user() {
+  local SERVICE="$1"
+  local USERNAME="$2"
+  local EMAIL="$3"
+  local PASSWORD="$4"
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+  local CONFIG_DIR="$SERVICE_ROOT/config"
+
+  # Check if user already exists in config
+  if grep -q "name = \"$USERNAME\"" "$CONFIG_DIR/glauth.cfg" 2>/dev/null; then
+    return 0
+  fi
+
+  # Get next UID
+  local MAX_UID
+  MAX_UID=$(grep -o 'uidnumber = [0-9]*' "$CONFIG_DIR/glauth.cfg" | sort -t= -k2 -n | tail -1 | grep -o '[0-9]*' || echo "5000")
+  local NEW_UID=$((MAX_UID + 1))
+
+  # Get default users group GID
+  local GROUP_GID
+  GROUP_GID=$(grep -A1 "name = \"$DEFAULT_USERS_GROUP\"" "$CONFIG_DIR/glauth.cfg" | grep gidnumber | grep -o '[0-9]*' || echo "5502")
+
+  # Hash password
+  local PASS_HASH
+  PASS_HASH=$(echo -n "$PASSWORD" | sha256sum | cut -d' ' -f1)
+
+  # Append user to config
+  cat >> "$CONFIG_DIR/glauth.cfg" <<EOF
+
+[[users]]
+  name = "$USERNAME"
+  mail = "$EMAIL"
+  uidnumber = $NEW_UID
+  primarygroup = $GROUP_GID
+  passsha256 = "$PASS_HASH"
+EOF
+
+  echo "       Note: GLAuth requires restart to apply user changes"
+}
+
 # Create a group (GLAuth requires config file edits)
 provider_create_group() {
   local SERVICE="$1"

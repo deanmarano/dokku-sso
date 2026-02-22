@@ -261,6 +261,43 @@ provider_info() {
   echo "       Domain: $DOMAIN"
 }
 
+# Create a user
+# Arguments: SERVICE USERNAME EMAIL PASSWORD
+provider_create_user() {
+  local SERVICE="$1"
+  local USERNAME="$2"
+  local EMAIL="$3"
+  local PASSWORD="$4"
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/directory/$SERVICE"
+  local CONFIG_DIR="$SERVICE_ROOT/config"
+  local CONTAINER_ID
+  CONTAINER_ID=$(get_running_container_id "$SERVICE")
+
+  local BASE_DN ADMIN_PASSWORD
+  BASE_DN=$(cat "$CONFIG_DIR/BASE_DN")
+  ADMIN_PASSWORD=$(cat "$CONFIG_DIR/ADMIN_PASSWORD")
+
+  # Generate SSHA password hash
+  local HASHED_PASSWORD
+  HASHED_PASSWORD=$(docker exec "$CONTAINER_ID" slappasswd -s "$PASSWORD" 2>/dev/null)
+
+  if ! docker exec -i "$CONTAINER_ID" ldapadd -x -H ldap://localhost -D "cn=admin,$BASE_DN" -w "$ADMIN_PASSWORD" <<EOF 2>&1; then
+dn: uid=$USERNAME,ou=people,$BASE_DN
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: $USERNAME
+cn: $USERNAME
+sn: $USERNAME
+mail: $EMAIL
+userPassword: $HASHED_PASSWORD
+uidNumber: $(( RANDOM + 10000 ))
+gidNumber: 10000
+homeDirectory: /home/$USERNAME
+EOF
+    echo "       Warning: Could not create user $USERNAME (may already exist)"
+  fi
+}
+
 # Create a group
 provider_create_group() {
   local SERVICE="$1"
