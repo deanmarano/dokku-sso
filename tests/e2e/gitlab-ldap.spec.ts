@@ -102,11 +102,8 @@ ${ldapConfig}
       }
     }
 
-    // Get the auth network from the LLDAP container
-    const authNetwork = execSync(
-      `docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' ${getDirectoryContainerId(SERVICE_NAME)}`,
-      { encoding: 'utf-8' }
-    ).trim().split(' ')[0];
+    // Use the well-known SSO network name (must match config's SSO_NETWORK)
+    const authNetwork = 'dokku.sso.network';
 
     execSync(
       `docker run -d --name ${GITLAB_CONTAINER} ` +

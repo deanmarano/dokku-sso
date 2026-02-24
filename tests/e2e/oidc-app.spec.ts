@@ -92,13 +92,8 @@ test.describe('OIDC Application Browser Flow', () => {
     const creds = getLdapCredentials(DIRECTORY_SERVICE);
     ADMIN_PASSWORD = creds.ADMIN_PASSWORD;
 
-    // Determine the auth network
-    SSO_NETWORK = execSync(
-      `docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' ${getDirectoryContainerId(DIRECTORY_SERVICE)}`,
-      { encoding: 'utf-8' }
-    )
-      .trim()
-      .split(' ')[0];
+    // Use the well-known SSO network name (must match config's SSO_NETWORK)
+    SSO_NETWORK = 'dokku.sso.network';
     console.log(`Auth network: ${SSO_NETWORK}`);
 
     // 2. Create Authelia frontend service

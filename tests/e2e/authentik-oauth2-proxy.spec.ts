@@ -4,7 +4,6 @@ import * as fs from 'fs';
 import {
   dokku,
   getContainerIp,
-  getDirectoryContainerId,
   waitForHealthy,
   waitForHttps,
 } from './helpers';
@@ -429,13 +428,8 @@ test.describe('Authentik + oauth2-proxy OIDC Browser Flow', () => {
       throw new Error('Directory service not healthy');
     }
 
-    // Get auth network
-    SSO_NETWORK = execSync(
-      `docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' ${getDirectoryContainerId(DIRECTORY_SERVICE)}`,
-      { encoding: 'utf-8' }
-    )
-      .trim()
-      .split(' ')[0];
+    // Use the well-known SSO network name (must match config's SSO_NETWORK)
+    SSO_NETWORK = 'dokku.sso.network';
     console.log(`Auth network: ${SSO_NETWORK}`);
 
     // 2. Create Authentik frontend service

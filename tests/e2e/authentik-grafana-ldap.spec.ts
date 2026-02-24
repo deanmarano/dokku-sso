@@ -59,11 +59,8 @@ test.describe('Authentik + Grafana LDAP Integration', () => {
     LDAP_CONTAINER_IP = getContainerIp(getDirectoryContainerId(DIRECTORY_SERVICE));
     console.log(`LLDAP container IP: ${LDAP_CONTAINER_IP}`);
 
-    // Determine the auth network
-    SSO_NETWORK = execSync(
-      `docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' ${getDirectoryContainerId(DIRECTORY_SERVICE)}`,
-      { encoding: 'utf-8' }
-    ).trim().split(' ')[0];
+    // Use the well-known SSO network name (must match config's SSO_NETWORK)
+    SSO_NETWORK = 'dokku.sso.network';
     console.log(`Auth network: ${SSO_NETWORK}`);
 
     // 2. Create Authentik frontend service
