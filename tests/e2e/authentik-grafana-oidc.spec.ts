@@ -391,11 +391,11 @@ test.describe('Authentik + Grafana OIDC Browser Flow', () => {
 
     // Get auth network
     SSO_NETWORK = execSync(
-      `docker inspect ${getDirectoryContainerId(DIRECTORY_SERVICE)} --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}'`,
+      `docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' ${getDirectoryContainerId(DIRECTORY_SERVICE)}`,
       { encoding: 'utf-8' }
     )
       .trim()
-      .split('\n')[0];
+      .split(' ')[0];
     console.log(`Auth network: ${SSO_NETWORK}`);
 
     // 2. Create Authentik frontend service

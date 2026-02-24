@@ -11,6 +11,7 @@ import {
   loginViaAuthelia,
   verifyAutheliaRedirect,
   waitForAuthHealthy,
+  pluginAvailable,
   type TestUser,
 } from './helpers';
 
@@ -41,6 +42,8 @@ test.describe('Grafana OIDC Browser Flow', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeAll(async () => {
+    test.skip(!pluginAvailable('postgres'), 'postgres plugin not available');
+
     console.log('=== Setting up Grafana OIDC test environment ===');
 
     setupAuthServices(AUTH_SERVICE, FRONTEND_SERVICE);

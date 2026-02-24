@@ -13,6 +13,7 @@ import {
   waitForAuthHealthy,
   getAppUrl,
   getConfig,
+  pluginAvailable,
   type TestUser,
 } from './helpers';
 
@@ -40,6 +41,8 @@ test.describe('Grafana LDAP Integration', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeAll(async () => {
+    test.skip(!pluginAvailable('postgres'), 'postgres plugin not available');
+
     console.log('=== Setting up Grafana LDAP test ===');
 
     setupAuthServices(AUTH_SERVICE, FRONTEND_SERVICE);
