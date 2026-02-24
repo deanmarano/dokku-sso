@@ -192,6 +192,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -251,6 +257,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.gitea == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -301,6 +312,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.nextcloud == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -355,6 +371,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.multi-app == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -405,6 +426,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.oidc == 'true' || needs.changes.outputs.frontend == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -461,6 +487,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.grafana == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -516,6 +547,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.grafana == 'true' || needs.changes.outputs.oidc == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -577,6 +613,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.gitlab == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -629,6 +670,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.glauth == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -680,6 +726,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.openldap == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -731,6 +782,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.authentik == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -784,6 +840,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.authentik == 'true' || needs.changes.outputs.grafana == 'true' || needs.changes.outputs.authentik-grafana == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -837,6 +898,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.authentik == 'true' || needs.changes.outputs.grafana == 'true' || needs.changes.outputs.oidc == 'true' || needs.changes.outputs.authentik-grafana == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -895,6 +961,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.radarr == 'true' || needs.changes.outputs.frontend == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -957,6 +1028,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.jellyfin == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -1013,6 +1089,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.immich == 'true' || needs.changes.outputs.oidc == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -1075,6 +1156,11 @@ jobs:
       (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.authentik == 'true' || needs.changes.outputs.oidc == 'true' || needs.changes.outputs.authentik-oauth2-proxy == 'true')
     steps:
       - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
