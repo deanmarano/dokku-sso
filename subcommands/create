@@ -82,9 +82,9 @@ fi
 echo "-----> Creating directory service $SERVICE (provider: $PROVIDER)"
 
 # Ensure SSO network exists
-if ! docker network ls -q -f "name=^${AUTH_NETWORK}$" | grep -q .; then
-  echo "       Creating network $AUTH_NETWORK"
-  docker network create "$AUTH_NETWORK" >/dev/null
+if ! docker network ls -q -f "name=^${SSO_NETWORK}$" | grep -q .; then
+  echo "       Creating network $SSO_NETWORK"
+  docker network create "$SSO_NETWORK" >/dev/null
 fi
 
 # Create service directory (idempotent for adopt case)

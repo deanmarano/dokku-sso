@@ -84,7 +84,7 @@ function createFrontendService(
   serviceName: string,
   protectedApps: string[]
 ) {
-  const serviceDir = join(servicesRoot, 'auth', 'frontend', serviceName);
+  const serviceDir = join(servicesRoot, 'sso', 'frontend', serviceName);
   mkdirSync(serviceDir, { recursive: true });
   if (protectedApps.length > 0) {
     writeFileSync(join(serviceDir, 'PROTECTED'), protectedApps.join('\n') + '\n');

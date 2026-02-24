@@ -67,7 +67,7 @@ echo "       LDAP_BIND_PASSWORD=<hidden>"
 
 # Attach app to SSO network
 echo "-----> Attaching $APP to SSO network"
-"$DOKKU_BIN" network:set "$APP" attach-post-deploy "$AUTH_NETWORK" < /dev/null 2>/dev/null || true
+"$DOKKU_BIN" network:set "$APP" attach-post-deploy "$SSO_NETWORK" < /dev/null 2>/dev/null || true
 
 # Create app-specific group
 GROUP_NAME="${APP}_users"

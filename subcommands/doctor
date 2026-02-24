@@ -80,22 +80,22 @@ if [[ -n "$APP_NAME" ]]; then
 
   # Check 5: Network exists
   echo -n "       Checking SSO network... "
-  if docker network ls -q -f "name=^${AUTH_NETWORK}$" | grep -q .; then
+  if docker network ls -q -f "name=^${SSO_NETWORK}$" | grep -q .; then
     echo "OK"
   else
     echo "FAILED - creating network"
-    docker network create "$AUTH_NETWORK" >/dev/null
+    docker network create "$SSO_NETWORK" >/dev/null
     ISSUES=$((ISSUES + 1))
   fi
 
   # Check 6: App attached to SSO network
   echo -n "       Checking network attachment... "
   NETWORK_SETTING=$("$DOKKU_BIN" network:report "$APP_NAME" --network-attach-post-deploy < /dev/null 2>/dev/null || echo "")
-  if echo "$NETWORK_SETTING" | grep -q "$AUTH_NETWORK"; then
+  if echo "$NETWORK_SETTING" | grep -q "$SSO_NETWORK"; then
     echo "OK"
   else
     echo "FAILED - attaching to network"
-    "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$AUTH_NETWORK" < /dev/null
+    "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$SSO_NETWORK" < /dev/null
     ISSUES=$((ISSUES + 1))
   fi
 
@@ -132,21 +132,21 @@ else
 
   # Check 5: Network exists
   echo -n "       Checking SSO network... "
-  if docker network ls -q -f "name=^${AUTH_NETWORK}$" | grep -q .; then
+  if docker network ls -q -f "name=^${SSO_NETWORK}$" | grep -q .; then
     echo "OK"
   else
     echo "FAILED - creating network"
-    docker network create "$AUTH_NETWORK" >/dev/null
+    docker network create "$SSO_NETWORK" >/dev/null
     ISSUES=$((ISSUES + 1))
   fi
 
   # Check 6: Container on network
   echo -n "       Checking container network... "
-  if docker inspect "$CONTAINER_NAME" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' 2>/dev/null | grep -q "$AUTH_NETWORK"; then
+  if docker inspect "$CONTAINER_NAME" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' 2>/dev/null | grep -q "$SSO_NETWORK"; then
     echo "OK"
   else
     echo "FAILED - connecting to network"
-    docker network connect "$AUTH_NETWORK" "$CONTAINER_NAME" 2>/dev/null || true
+    docker network connect "$SSO_NETWORK" "$CONTAINER_NAME" 2>/dev/null || true
     ISSUES=$((ISSUES + 1))
   fi
 fi
