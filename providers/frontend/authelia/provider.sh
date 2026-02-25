@@ -102,6 +102,10 @@ USERSEOF
   # Set port mapping before deploy (Dokku may not auto-detect from image on redeploy)
   "$DOKKU_BIN" ports:set "$APP_NAME" http:80:9091 < /dev/null 2>/dev/null || true
 
+  # Attach to SSO network so Authelia can reach directory services (LLDAP, etc.)
+  echo "-----> Attaching to network $SSO_NETWORK"
+  "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$SSO_NETWORK" < /dev/null
+
   # Deploy from image (use ps:rebuild if already deployed, git:from-image for first deploy)
   echo "-----> Deploying $PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
   if "$DOKKU_BIN" ps:report "$APP_NAME" --deployed < /dev/null 2>/dev/null | grep -q "true"; then
@@ -184,9 +188,9 @@ generate_authelia_config() {
     COOKIE_DOMAIN="$DOMAIN"
   fi
 
-  # Determine URL scheme - use http for localhost (testing), https otherwise
+  # Determine URL scheme - use http for localhost/.local (testing), https otherwise
   local URL_SCHEME="https"
-  if [[ "$DOMAIN" == localhost* ]]; then
+  if [[ "$DOMAIN" == localhost* ]] || [[ "$DOMAIN" == *.local ]]; then
     URL_SCHEME="http"
   fi
 
