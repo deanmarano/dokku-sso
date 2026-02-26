@@ -61,16 +61,6 @@ provider_create_container() {
   # Generate Authelia configuration
   generate_authelia_config "$SERVICE"
 
-  # Debug: log key config details (to stderr so they show in CI on failure)
-  echo "       [DEBUG] Config file: $CONFIG_DIR/configuration.yml" >&2
-  echo "       [DEBUG] Config exists: $(test -f "$CONFIG_DIR/configuration.yml" && echo yes || echo NO)" >&2
-  echo "       [DEBUG] Config size: $(wc -c < "$CONFIG_DIR/configuration.yml" 2>/dev/null || echo 0) bytes" >&2
-  echo "       [DEBUG] Config perms: $(stat -c '%A %U %G' "$CONFIG_DIR/configuration.yml" 2>/dev/null || echo unknown)" >&2
-  echo "       [DEBUG] Auth backend: $(grep -A1 'authentication_backend:' "$CONFIG_DIR/configuration.yml" 2>/dev/null | tail -1 | tr -d '[:space:]')" >&2
-  echo "       [DEBUG] Data dir: $(ls "$DATA_DIR/" 2>/dev/null || echo empty)" >&2
-  echo "       [DEBUG] LDAP URL in config: $(grep 'address:' "$CONFIG_DIR/configuration.yml" 2>/dev/null | head -1 || echo none)" >&2
-  echo "       [DEBUG] Server address: $(grep -A1 'server:' "$CONFIG_DIR/configuration.yml" 2>/dev/null | tail -1 || echo none)" >&2
-
   # Create users.yml if using file-based auth (no LDAP linked)
   # Authelia v4.39+ crashes fatally if users.yml is missing or empty
   if [[ ! -f "$SERVICE_ROOT/DIRECTORY" ]] && [[ ! -f "$DATA_DIR/users.yml" ]]; then
@@ -82,8 +72,12 @@ users:
     email: placeholder@localhost
     password: "$argon2id$v=19$m=65536,t=3,p=4$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 USERSEOF
-    chmod 600 "$DATA_DIR/users.yml"
+    chmod 644 "$DATA_DIR/users.yml"
   fi
+
+  # Authelia container runs as non-root (UID 8000 since v4.38+).
+  # Data directory must be writable for SQLite DB and notification files.
+  chmod 777 "$DATA_DIR"
 
   # Restore Authelia provider variables (may have been overwritten by load_directory_provider)
   PROVIDER_IMAGE="authelia/authelia"
@@ -95,10 +89,14 @@ USERSEOF
     "$DOKKU_BIN" apps:create "$APP_NAME" < /dev/null
   fi
 
-  # Mount config and data directories
+  # Mount config and data directories (|| true for idempotent re-runs where mount already exists)
   echo "-----> Mounting storage volumes"
   "$DOKKU_BIN" storage:mount "$APP_NAME" "$CONFIG_DIR/configuration.yml:/config/configuration.yml" < /dev/null 2>/dev/null || true
   "$DOKKU_BIN" storage:mount "$APP_NAME" "$DATA_DIR:/data" < /dev/null 2>/dev/null || true
+  # Verify mounts were registered
+  if ! "$DOKKU_BIN" storage:report "$APP_NAME" < /dev/null 2>/dev/null | grep -q "configuration.yml"; then
+    echo "!     Warning: config mount may not be registered" >&2
+  fi
 
   # Set environment variables
   echo "-----> Setting environment variables"
@@ -110,11 +108,15 @@ USERSEOF
   "$DOKKU_BIN" domains:set "$APP_NAME" "$DOMAIN" < /dev/null
 
   # Set port mapping before deploy (Dokku may not auto-detect from image on redeploy)
-  "$DOKKU_BIN" ports:set "$APP_NAME" http:80:9091 < /dev/null 2>/dev/null || true
+  echo "-----> Setting port mapping 80:9091"
+  "$DOKKU_BIN" ports:set "$APP_NAME" http:80:9091 < /dev/null
 
-  # Attach to SSO network so Authelia can reach directory services (LLDAP, etc.)
+  # Attach to SSO network at container creation time so Authelia can resolve
+  # directory service hostnames (e.g., LLDAP) during startup config validation.
+  # Must use attach-post-create (not attach-post-deploy) because Authelia validates
+  # LDAP connectivity at startup, before healthchecks pass.
   echo "-----> Attaching to network $SSO_NETWORK"
-  "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$SSO_NETWORK" < /dev/null
+  "$DOKKU_BIN" network:set "$APP_NAME" attach-post-create "$SSO_NETWORK" < /dev/null
 
   # Deploy from image or restart container if already deployed
   echo "-----> Deploying $PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
@@ -133,7 +135,15 @@ USERSEOF
       "$DOKKU_BIN" ps:restart "$APP_NAME" < /dev/null || true
     fi
   else
-    "$DOKKU_BIN" git:from-image "$APP_NAME" "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION" < /dev/null
+    if ! "$DOKKU_BIN" git:from-image "$APP_NAME" "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION" < /dev/null; then
+      echo "!     Deployment failed — capturing container logs:" >&2
+      "$DOKKU_BIN" logs "$APP_NAME" --num 20 < /dev/null 2>&1 >&2 || true
+      echo "!     Storage mounts:" >&2
+      "$DOKKU_BIN" storage:report "$APP_NAME" < /dev/null 2>&1 >&2 || true
+      echo "!     Port config:" >&2
+      "$DOKKU_BIN" ports:report "$APP_NAME" < /dev/null 2>&1 >&2 || true
+      return 1
+    fi
   fi
 
   # Wait for app to be running
@@ -369,7 +379,9 @@ EOF
     fi
   fi
 
-  chmod 600 "$CONFIG_DIR/configuration.yml"
+  # Authelia container runs as non-root (UID 8000 since v4.38+).
+  # Config must be world-readable for the container user to access the bind mount.
+  chmod 644 "$CONFIG_DIR/configuration.yml"
 }
 
 # Generate OIDC clients YAML
