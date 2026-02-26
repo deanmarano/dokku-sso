@@ -106,12 +106,26 @@ USERSEOF
   echo "-----> Attaching to network $SSO_NETWORK"
   "$DOKKU_BIN" network:set "$APP_NAME" attach-post-deploy "$SSO_NETWORK" < /dev/null
 
-  # Deploy from image or restart if already deployed
-  # Config is bind-mounted, so a restart picks up changes without a full rebuild
+  # Deploy from image or restart container if already deployed
   echo "-----> Deploying $PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
   if "$DOKKU_BIN" ps:report "$APP_NAME" --deployed < /dev/null 2>/dev/null | grep -q "true"; then
-    echo "       App already deployed, restarting to pick up config changes..."
-    "$DOKKU_BIN" ps:restart "$APP_NAME" < /dev/null
+    # Config is bind-mounted — just restart the Docker container directly.
+    # Dokku's ps:restart/ps:rebuild do a full redeploy with healthchecks which
+    # can fail during the transition. A direct docker restart is sufficient
+    # since only the config file changed, not the image.
+    echo "       App already deployed, restarting container..."
+    local CONTAINER_ID
+    CONTAINER_ID=$("$DOKKU_BIN" ps:report "$APP_NAME" --status-web-1 < /dev/null 2>/dev/null | tr -d '[:space:]')
+    if [[ "$CONTAINER_ID" == "running" ]]; then
+      # Get actual container ID
+      CONTAINER_ID=$(docker ps -q -f "label=com.dokku.app-name=$APP_NAME" 2>/dev/null | head -1)
+    fi
+    if [[ -n "$CONTAINER_ID" ]]; then
+      docker restart "$CONTAINER_ID" 2>/dev/null || true
+    else
+      # Fallback: try ps:restart if we can't find the container
+      "$DOKKU_BIN" ps:restart "$APP_NAME" < /dev/null || true
+    fi
   else
     "$DOKKU_BIN" git:from-image "$APP_NAME" "$PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION" < /dev/null
   fi
