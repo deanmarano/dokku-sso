@@ -44,7 +44,7 @@ provider_create_container() {
   echo "$STORAGE_KEY" > "$CONFIG_DIR/STORAGE_KEY"
   echo "$IDENTITY_VALIDATION_SECRET" > "$CONFIG_DIR/IDENTITY_VALIDATION_SECRET"
   for f in "$CONFIG_DIR"/*; do
-    [[ -f "$f" ]] && chmod 600 "$f"
+    [[ -f "$f" ]] && [[ -O "$f" ]] && chmod 600 "$f"
   done
 
   # Get directory service info if linked
