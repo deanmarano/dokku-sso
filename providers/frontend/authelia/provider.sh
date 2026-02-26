@@ -266,10 +266,14 @@ generate_authelia_config() {
     OIDC_CLIENTS_YAML=$(generate_oidc_clients_yaml "$SERVICE")
   fi
 
-  # Remove existing file to avoid permission issues on re-generation
-  rm -f "$CONFIG_DIR/configuration.yml"
+  # Write config to a temp file first, then move into place.
+  # This avoids permission issues when the existing file is owned by root
+  # (e.g. from a previous sudo run) — mv replaces the directory entry
+  # without needing write access to the old file, only to the directory.
+  local CONFIG_TMP
+  CONFIG_TMP=$(mktemp "$CONFIG_DIR/configuration.yml.XXXXXX")
 
-  cat > "$CONFIG_DIR/configuration.yml" <<EOF
+  cat > "$CONFIG_TMP" <<EOF
 ---
 theme: light
 
@@ -293,7 +297,7 @@ authentication_backend:
 EOF
 
   if [[ -n "$LDAP_URL" ]]; then
-    cat >> "$CONFIG_DIR/configuration.yml" <<EOF
+    cat >> "$CONFIG_TMP" <<EOF
   ldap:
     address: $LDAP_URL
     implementation: custom
@@ -315,7 +319,7 @@ EOF
       group_name: cn
 EOF
   else
-    cat >> "$CONFIG_DIR/configuration.yml" <<EOF
+    cat >> "$CONFIG_TMP" <<EOF
   file:
     path: /data/users.yml
     watch: true
@@ -327,7 +331,7 @@ EOF
 EOF
   fi
 
-  cat >> "$CONFIG_DIR/configuration.yml" <<EOF
+  cat >> "$CONFIG_TMP" <<EOF
 
 identity_validation:
   reset_password:
@@ -375,7 +379,7 @@ EOF
       chmod 600 "$CONFIG_DIR/oidc_private_key.pem"
     fi
 
-    cat >> "$CONFIG_DIR/configuration.yml" <<EOF
+    cat >> "$CONFIG_TMP" <<EOF
 
 identity_providers:
   oidc:
@@ -393,7 +397,7 @@ $(sed 's/^/          /' "$CONFIG_DIR/oidc_private_key.pem")
 EOF
 
     if [[ -n "$OIDC_CLIENTS_YAML" ]]; then
-      cat >> "$CONFIG_DIR/configuration.yml" <<EOF
+      cat >> "$CONFIG_TMP" <<EOF
     clients:
 $OIDC_CLIENTS_YAML
 EOF
@@ -402,7 +406,8 @@ EOF
 
   # Authelia container runs as non-root (UID 8000 since v4.38+).
   # Config must be world-readable for the container user to access the bind mount.
-  chmod 644 "$CONFIG_DIR/configuration.yml"
+  chmod 644 "$CONFIG_TMP"
+  mv -f "$CONFIG_TMP" "$CONFIG_DIR/configuration.yml"
 }
 
 # Generate OIDC clients YAML
