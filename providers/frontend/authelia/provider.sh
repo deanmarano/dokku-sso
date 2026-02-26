@@ -107,9 +107,26 @@ USERSEOF
   echo "-----> Setting domain $DOMAIN"
   "$DOKKU_BIN" domains:set "$APP_NAME" "$DOMAIN" < /dev/null
 
-  # Set port mapping before deploy (Dokku may not auto-detect from image on redeploy)
-  echo "-----> Setting port mapping 80:9091"
-  "$DOKKU_BIN" ports:set "$APP_NAME" http:80:9091 < /dev/null
+  # Generate self-signed TLS certificate if none exists.
+  # Authelia v4.39+ requires HTTPS for authelia_url/session cookies, so the
+  # Dokku app must serve HTTPS. Without a cert, session cookies (Secure flag)
+  # won't work and browser logins fail silently.
+  if ! "$DOKKU_BIN" certs:report "$APP_NAME" < /dev/null 2>/dev/null | grep -q "has info.*true"; then
+    echo "-----> Generating self-signed TLS certificate for $DOMAIN"
+    local CERT_DIR
+    CERT_DIR=$(mktemp -d)
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+      -keyout "$CERT_DIR/server.key" -out "$CERT_DIR/server.crt" \
+      -subj "/CN=$DOMAIN" \
+      -addext "subjectAltName=DNS:$DOMAIN" 2>/dev/null
+    # Dokku certs:add reads a tar stream of server.crt + server.key from stdin
+    tar cf - -C "$CERT_DIR" server.crt server.key | "$DOKKU_BIN" certs:add "$APP_NAME" 2>/dev/null || true
+    rm -rf "$CERT_DIR"
+  fi
+
+  # Set port mapping: HTTPS for browser access, HTTP for internal auth_request
+  echo "-----> Setting port mapping"
+  "$DOKKU_BIN" ports:set "$APP_NAME" https:443:9091 http:80:9091 < /dev/null
 
   # Attach to SSO network at container creation time so Authelia can resolve
   # directory service hostnames (e.g., LLDAP) during startup config validation.
@@ -516,11 +533,11 @@ provider_protect_app() {
   local DOMAIN
   DOMAIN=$(cat "$CONFIG_DIR/DOMAIN")
 
-  # Determine URL scheme: use http for localhost or .local domains (testing), https otherwise
+  # Always use HTTPS for Authelia URLs. The Authelia Dokku app is configured
+  # with a self-signed TLS cert (generated during create), and Authelia v4.39+
+  # requires HTTPS for session cookies (Secure flag). Using HTTP would cause
+  # silent login failures because cookies can't be set over HTTP.
   local URL_SCHEME="https"
-  if [[ "$DOMAIN" == localhost* ]] || [[ "$DOMAIN" == *.local ]]; then
-    URL_SCHEME="http"
-  fi
 
   # Get the Authelia app name for internal auth_request subrequest
   # Use internal Dokku-proxied URL to avoid SSL issues with auth_request
