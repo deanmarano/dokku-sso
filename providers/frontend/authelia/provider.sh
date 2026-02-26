@@ -61,6 +61,14 @@ provider_create_container() {
   # Generate Authelia configuration
   generate_authelia_config "$SERVICE"
 
+  # Debug: log key config details
+  echo "       Config file: $CONFIG_DIR/configuration.yml"
+  echo "       Config file exists: $(test -f "$CONFIG_DIR/configuration.yml" && echo yes || echo NO)"
+  echo "       Config file size: $(wc -c < "$CONFIG_DIR/configuration.yml" 2>/dev/null || echo 0) bytes"
+  echo "       Config file perms: $(ls -la "$CONFIG_DIR/configuration.yml" 2>/dev/null | awk '{print $1, $3, $4}')"
+  echo "       Auth backend: $(grep -A1 'authentication_backend:' "$CONFIG_DIR/configuration.yml" 2>/dev/null | tail -1 | tr -d '[:space:]')"
+  echo "       Data dir contents: $(ls "$DATA_DIR/" 2>/dev/null || echo empty)"
+
   # Create users.yml if using file-based auth (no LDAP linked)
   # Authelia v4.39+ crashes fatally if users.yml is missing or empty
   if [[ ! -f "$SERVICE_ROOT/DIRECTORY" ]] && [[ ! -f "$DATA_DIR/users.yml" ]]; then
