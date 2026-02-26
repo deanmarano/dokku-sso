@@ -61,13 +61,15 @@ provider_create_container() {
   # Generate Authelia configuration
   generate_authelia_config "$SERVICE"
 
-  # Debug: log key config details
-  echo "       Config file: $CONFIG_DIR/configuration.yml"
-  echo "       Config file exists: $(test -f "$CONFIG_DIR/configuration.yml" && echo yes || echo NO)"
-  echo "       Config file size: $(wc -c < "$CONFIG_DIR/configuration.yml" 2>/dev/null || echo 0) bytes"
-  echo "       Config file perms: $(ls -la "$CONFIG_DIR/configuration.yml" 2>/dev/null | awk '{print $1, $3, $4}')"
-  echo "       Auth backend: $(grep -A1 'authentication_backend:' "$CONFIG_DIR/configuration.yml" 2>/dev/null | tail -1 | tr -d '[:space:]')"
-  echo "       Data dir contents: $(ls "$DATA_DIR/" 2>/dev/null || echo empty)"
+  # Debug: log key config details (to stderr so they show in CI on failure)
+  echo "       [DEBUG] Config file: $CONFIG_DIR/configuration.yml" >&2
+  echo "       [DEBUG] Config exists: $(test -f "$CONFIG_DIR/configuration.yml" && echo yes || echo NO)" >&2
+  echo "       [DEBUG] Config size: $(wc -c < "$CONFIG_DIR/configuration.yml" 2>/dev/null || echo 0) bytes" >&2
+  echo "       [DEBUG] Config perms: $(stat -c '%A %U %G' "$CONFIG_DIR/configuration.yml" 2>/dev/null || echo unknown)" >&2
+  echo "       [DEBUG] Auth backend: $(grep -A1 'authentication_backend:' "$CONFIG_DIR/configuration.yml" 2>/dev/null | tail -1 | tr -d '[:space:]')" >&2
+  echo "       [DEBUG] Data dir: $(ls "$DATA_DIR/" 2>/dev/null || echo empty)" >&2
+  echo "       [DEBUG] LDAP URL in config: $(grep 'address:' "$CONFIG_DIR/configuration.yml" 2>/dev/null | head -1 || echo none)" >&2
+  echo "       [DEBUG] Server address: $(grep -A1 'server:' "$CONFIG_DIR/configuration.yml" 2>/dev/null | tail -1 || echo none)" >&2
 
   # Create users.yml if using file-based auth (no LDAP linked)
   # Authelia v4.39+ crashes fatally if users.yml is missing or empty
