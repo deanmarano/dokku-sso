@@ -45,6 +45,8 @@ const APP_DOMAIN = 'app.test.local';
 
 // HTTPS ports - use 443 for Authelia so the OIDC issuer URL matches
 // (Authelia generates issuer as https://DOMAIN without port, so we need default 443)
+// Note: We disable Dokku's proxy for the Authelia app after apply so it doesn't
+// bind 443 — the test runs its own nginx TLS proxy instead.
 const AUTHELIA_HTTPS_PORT = 443;
 const OAUTH2_PROXY_HTTPS_PORT = 4443;
 
@@ -165,6 +167,15 @@ test.describe('OIDC Application Browser Flow', () => {
       console.log('Apply result:', e.message);
     }
 
+    // Disable Dokku's nginx proxy for the Authelia app so it doesn't bind
+    // port 443 — the test runs its own nginx TLS proxy for OIDC.
+    console.log('Disabling Dokku proxy for Authelia app...');
+    try {
+      dokku('proxy:disable authelia');
+    } catch (e: any) {
+      console.log('proxy:disable result:', e.message);
+    }
+
     // Wait for Authelia to be healthy
     console.log('Waiting for Authelia to be ready...');
     await new Promise((r) => setTimeout(r, 5000));
@@ -231,7 +242,7 @@ test.describe('OIDC Application Browser Flow', () => {
 
     // 9. Deploy nginx FIRST as TLS terminating proxy
     // nginx must be up before oauth2-proxy because oauth2-proxy fetches
-    // OIDC discovery from https://auth.test.local:9443 on startup.
+    // OIDC discovery from https://auth.test.local on startup.
     // Use Docker DNS resolver so nginx can resolve oauth2-proxy by container name
     // (it doesn't exist yet, but will be resolved at request time, not startup).
     console.log('Deploying nginx TLS proxy...');
