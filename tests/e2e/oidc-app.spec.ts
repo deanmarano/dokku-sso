@@ -167,13 +167,17 @@ test.describe('OIDC Application Browser Flow', () => {
       console.log('Apply result:', e.message);
     }
 
-    // Disable Dokku's nginx proxy for the Authelia app so it doesn't bind
-    // port 443 — the test runs its own nginx TLS proxy for OIDC.
-    console.log('Disabling Dokku proxy for Authelia app...');
+    // Stop Dokku's nginx so it doesn't occupy port 443 — the test runs its
+    // own nginx container for TLS termination. Dokku's nginx binds 443 globally
+    // once any app has HTTPS configured, even if that app's proxy is disabled.
+    console.log('Stopping Dokku nginx to free port 443...');
     try {
-      dokku('proxy:disable authelia');
+      execSync('sudo systemctl stop nginx || sudo service nginx stop', {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
     } catch (e: any) {
-      console.log('proxy:disable result:', e.message);
+      console.log('nginx stop result:', e.message);
     }
 
     // Wait for Authelia to be healthy
