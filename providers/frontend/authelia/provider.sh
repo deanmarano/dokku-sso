@@ -571,11 +571,6 @@ location @forward_auth_login {
     auth_request off;
     return 302 ${URL_SCHEME}://$DOMAIN/?rd=https://\$http_host\$request_uri;
 }
-
-# Allow ACME challenges through without auth (for Let's Encrypt)
-location ^~ /.well-known/acme-challenge/ {
-    auth_request off;
-}
 EOF
 
   # Directives injected into location / by the nginx-pre-reload trigger.
