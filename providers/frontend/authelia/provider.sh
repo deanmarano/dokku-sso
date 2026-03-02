@@ -581,6 +581,10 @@ auth_request_set \$authelia_user \$upstream_http_remote_user;
 auth_request_set \$authelia_groups \$upstream_http_remote_groups;
 auth_request_set \$authelia_name \$upstream_http_remote_name;
 auth_request_set \$authelia_email \$upstream_http_remote_email;
+proxy_set_header Remote-User \$authelia_user;
+proxy_set_header Remote-Groups \$authelia_groups;
+proxy_set_header Remote-Name \$authelia_name;
+proxy_set_header Remote-Email \$authelia_email;
 error_page 401 = @forward_auth_login;
 EOF
 
