@@ -34,11 +34,9 @@ main() {
   [[ -z "$AUTH_CONF_FILE" ]] && return 0
   [[ ! -f "$AUTH_CONF_FILE" ]] && return 0
 
-  # Read the auth directives to inject into location /
+  # Read all directives to inject into location /
   local LOCATION_DIRECTIVES=""
-  # Only match directives at root level (no leading whitespace) to avoid
-  # picking up "auth_request off;" from inside location blocks
-  LOCATION_DIRECTIVES=$(grep -E '^(auth_request |auth_request_set |error_page 401 )' "$AUTH_CONF_FILE" || true)
+  LOCATION_DIRECTIVES=$(cat "$AUTH_CONF_FILE" 2>/dev/null || true)
 
   [[ -z "$LOCATION_DIRECTIVES" ]] && return 0
 
