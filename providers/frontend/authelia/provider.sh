@@ -550,9 +550,9 @@ provider_protect_app() {
   local DOKKU_ROOT="${DOKKU_ROOT:-/home/dokku}"
   local NGINX_CONF_DIR="$DOKKU_ROOT/$APP/nginx.conf.d"
   mkdir -p "$NGINX_CONF_DIR"
+  # Server-level locations (included by nginx via *.conf glob)
   cat > "$NGINX_CONF_DIR/forward-auth.conf" <<EOF
 # Authelia forward auth - managed by dokku-sso plugin
-# Server-level locations
 location /authelia-auth {
     internal;
     proxy_pass ${URL_SCHEME}://$DOMAIN/api/authz/auth-request;
@@ -572,7 +572,15 @@ location @forward_auth_login {
     return 302 ${URL_SCHEME}://$DOMAIN/?rd=https://\$http_host\$request_uri;
 }
 
-# Directives below are injected into location / by the nginx-pre-reload trigger
+# Allow ACME challenges through without auth (for Let's Encrypt)
+location ^~ /.well-known/acme-challenge/ {
+    auth_request off;
+}
+EOF
+
+  # Directives injected into location / by the nginx-pre-reload trigger.
+  # Stored in a .directives file so nginx doesn't include them at server level.
+  cat > "$NGINX_CONF_DIR/forward-auth.directives" <<EOF
 auth_request /authelia-auth;
 auth_request_set \$authelia_user \$upstream_http_remote_user;
 auth_request_set \$authelia_groups \$upstream_http_remote_groups;
@@ -603,6 +611,7 @@ provider_unprotect_app() {
   # Remove nginx forward auth include
   local DOKKU_ROOT="${DOKKU_ROOT:-/home/dokku}"
   rm -f "$DOKKU_ROOT/$APP/nginx.conf.d/forward-auth.conf"
+  rm -f "$DOKKU_ROOT/$APP/nginx.conf.d/forward-auth.directives"
 
   # Rebuild nginx config
   "$DOKKU_BIN" proxy:build-config "$APP" < /dev/null 2>/dev/null || true

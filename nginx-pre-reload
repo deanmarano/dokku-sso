@@ -26,7 +26,7 @@ main() {
     local protected_file="$service_dir/PROTECTED"
     [[ -f "$protected_file" ]] || continue
     if grep -qx "$APP" "$protected_file" 2>/dev/null; then
-      AUTH_CONF_FILE="$DOKKU_ROOT/$APP/nginx.conf.d/forward-auth.conf"
+      AUTH_CONF_FILE="$DOKKU_ROOT/$APP/nginx.conf.d/forward-auth.directives"
       break
     fi
   done
