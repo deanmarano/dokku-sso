@@ -21,18 +21,45 @@ main() {
 
   # Check if this app is protected by any frontend service
   local AUTH_CONF_FILE=""
+  local MATCHED_SERVICE_DIR=""
   for service_dir in "$PLUGIN_DATA_ROOT/sso/frontend"/*/; do
     [[ -d "$service_dir" ]] || continue
     local protected_file="$service_dir/PROTECTED"
     [[ -f "$protected_file" ]] || continue
     if grep -qx "$APP" "$protected_file" 2>/dev/null; then
       AUTH_CONF_FILE="$DOKKU_ROOT/$APP/nginx.conf.d/forward-auth.directives"
+      MATCHED_SERVICE_DIR="$service_dir"
       break
     fi
   done
 
   [[ -z "$AUTH_CONF_FILE" ]] && return 0
-  [[ ! -f "$AUTH_CONF_FILE" ]] && return 0
+
+  # Regenerate the directives file if it's missing (can happen after redeploys)
+  if [[ ! -f "$AUTH_CONF_FILE" ]]; then
+    local PROVIDER=""
+    if [[ -f "${MATCHED_SERVICE_DIR}config/FRONTEND_PROVIDER" ]]; then
+      PROVIDER="$(cat "${MATCHED_SERVICE_DIR}config/FRONTEND_PROVIDER")"
+    fi
+    if [[ "$PROVIDER" == "authelia" ]] || [[ -z "$PROVIDER" ]]; then
+      mkdir -p "$(dirname "$AUTH_CONF_FILE")"
+      cat > "$AUTH_CONF_FILE" <<'DIRECTIVES'
+auth_request /authelia-auth;
+auth_request_set $authelia_user $upstream_http_remote_user;
+auth_request_set $authelia_groups $upstream_http_remote_groups;
+auth_request_set $authelia_name $upstream_http_remote_name;
+auth_request_set $authelia_email $upstream_http_remote_email;
+proxy_set_header Remote-User $authelia_user;
+proxy_set_header Remote-Groups $authelia_groups;
+proxy_set_header Remote-Name $authelia_name;
+proxy_set_header Remote-Email $authelia_email;
+error_page 401 = @forward_auth_login;
+DIRECTIVES
+    else
+      # Unknown provider, can't regenerate
+      return 0
+    fi
+  fi
 
   # Read all directives to inject into location /
   local LOCATION_DIRECTIVES=""
