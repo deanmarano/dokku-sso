@@ -12,7 +12,7 @@ SERVICE="$1"
 APP="$2"
 
 if [[ -z "$SERVICE" ]] || [[ -z "$APP" ]]; then
-  echo "Usage: dokku sso:disintegrate <frontend-service> <app>" >&2
+  echo "Usage: dokku sso:oidc:teardown <frontend-service> <app>" >&2
   echo "" >&2
   echo "Remove OIDC integration from an app." >&2
   echo "Removes the OIDC client, unsets environment variables, and unprotects the app." >&2
@@ -37,7 +37,7 @@ fi
 PRESET="$(cat "$INTEGRATION_DIR/PRESET" 2>/dev/null || true)"
 CLIENT_ID="$(cat "$INTEGRATION_DIR/CLIENT_ID" 2>/dev/null || true)"
 
-echo "-----> Disintegrating $APP from $SERVICE"
+echo "-----> Tearing down OIDC for $APP from $SERVICE"
 
 # Load preset to get env var keys
 if [[ -n "$PRESET" ]]; then
@@ -84,4 +84,4 @@ echo "       Applying frontend configuration"
 # Clean up integration state
 rm -rf "$INTEGRATION_DIR"
 
-echo "-----> Disintegration complete for $APP"
+echo "-----> OIDC teardown complete for $APP"

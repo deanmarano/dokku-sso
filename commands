@@ -39,8 +39,8 @@ dokku sso directory commands:
 
     sso:protect <app>                           add SSO protection (auto-detect frontend)
     sso:unprotect <app>                         remove SSO protection
-    sso:integrate <svc> <app> --preset=<name>   set up OIDC integration with preset
-    sso:disintegrate <service> <app>            remove OIDC integration
+    sso:oidc:setup <svc> <app> --preset=<name>   set up OIDC for app using preset
+    sso:oidc:teardown <service> <app>           remove OIDC setup from app
 
     sso:provider:set <service> <provider>       set directory provider
     sso:provider:config <service> KEY=value     configure provider settings

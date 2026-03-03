@@ -22,7 +22,7 @@ for arg in "$@"; do
 done
 
 if [[ -z "$SERVICE" ]] || [[ -z "$APP" ]] || [[ -z "$PRESET" ]]; then
-  echo "Usage: dokku sso:integrate <frontend-service> <app> --preset=<name>" >&2
+  echo "Usage: dokku sso:oidc:setup <frontend-service> <app> --preset=<name>" >&2
   echo "" >&2
   echo "Set up OIDC integration for an app using a preset configuration." >&2
   echo "Creates an OIDC client, sets environment variables, and protects the app." >&2
@@ -51,7 +51,7 @@ fi
 # shellcheck source=/dev/null
 source "$PRESET_FILE"
 
-echo "-----> Integrating $APP with $SERVICE using preset '$PRESET'"
+echo "-----> Setting up OIDC for $APP with $SERVICE using preset '$PRESET'"
 
 SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
 CONFIG_DIR="$SERVICE_ROOT/config"
@@ -128,7 +128,7 @@ mkdir -p "$INTEGRATION_DIR"
 echo "$PRESET" > "$INTEGRATION_DIR/PRESET"
 echo "$CLIENT_ID" > "$INTEGRATION_DIR/CLIENT_ID"
 
-echo "-----> Integration complete"
+echo "-----> OIDC setup complete"
 echo "       App: $APP"
 echo "       Preset: $PRESET"
 echo "       Client ID: $CLIENT_ID"
