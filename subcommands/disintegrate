@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == sso:* ]] && shift
+
+SERVICE="$1"
+APP="$2"
+
+if [[ -z "$SERVICE" ]] || [[ -z "$APP" ]]; then
+  echo "Usage: dokku sso:disintegrate <frontend-service> <app>" >&2
+  echo "" >&2
+  echo "Remove OIDC integration from an app." >&2
+  echo "Removes the OIDC client, unsets environment variables, and unprotects the app." >&2
+  exit 1
+fi
+
+# Validate frontend service exists
+if ! frontend_service_exists "$SERVICE"; then
+  echo "!     Frontend service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
+INTEGRATION_DIR="$SERVICE_ROOT/integrations/$APP"
+
+# Check integration state
+if [[ ! -d "$INTEGRATION_DIR" ]]; then
+  echo "!     App $APP has no integration with $SERVICE" >&2
+  exit 1
+fi
+
+PRESET="$(cat "$INTEGRATION_DIR/PRESET" 2>/dev/null || true)"
+CLIENT_ID="$(cat "$INTEGRATION_DIR/CLIENT_ID" 2>/dev/null || true)"
+
+echo "-----> Disintegrating $APP from $SERVICE"
+
+# Load preset to get env var keys
+if [[ -n "$PRESET" ]]; then
+  PRESET_FILE="$PLUGIN_BASE_PATH/integrations/${PRESET}.sh"
+  if [[ -f "$PRESET_FILE" ]]; then
+    # shellcheck source=/dev/null
+    source "$PRESET_FILE"
+
+    # Unset env vars from preset
+    ENV_VARS="$(preset_env_vars "$SERVICE" "$APP" "" "" "")"
+    UNSET_KEYS=()
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      key="${line%%=*}"
+      UNSET_KEYS+=("$key")
+    done <<<"$ENV_VARS"
+
+    if [[ ${#UNSET_KEYS[@]} -gt 0 ]]; then
+      echo "       Unsetting environment variables"
+      "$DOKKU_BIN" config:unset --no-restart "$APP" "${UNSET_KEYS[@]}" < /dev/null 2>/dev/null || true
+    fi
+  fi
+fi
+
+# Remove OIDC client
+if [[ -n "$CLIENT_ID" ]]; then
+  CONFIG_DIR="$SERVICE_ROOT/config"
+  if [[ -f "$CONFIG_DIR/oidc_clients/$CLIENT_ID" ]] || [[ -d "$CONFIG_DIR/oidc_clients/$CLIENT_ID" ]]; then
+    echo "       Removing OIDC client: $CLIENT_ID"
+    load_frontend_provider "$SERVICE"
+    provider_remove_oidc_client "$SERVICE" "$CLIENT_ID"
+  fi
+fi
+
+# Unprotect app
+echo "       Removing forward auth protection"
+load_frontend_provider "$SERVICE"
+provider_unprotect_app "$SERVICE" "$APP" 2>/dev/null || true
+
+# Apply config to pick up OIDC client removal
+echo "       Applying frontend configuration"
+"$PLUGIN_BASE_PATH/subcommands/frontend_apply" "$SERVICE"
+
+# Clean up integration state
+rm -rf "$INTEGRATION_DIR"
+
+echo "-----> Disintegration complete for $APP"

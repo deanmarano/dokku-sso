@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config"
+source "$PLUGIN_BASE_PATH/providers/loader.sh"
+
+# Strip command prefix if dokku passed it
+[[ "${1:-}" == sso:* ]] && shift
+
+SERVICE="$1"
+APP="$2"
+PRESET=""
+
+shift 2 2>/dev/null || true
+
+# Parse options
+for arg in "$@"; do
+  case "$arg" in
+    --preset=*) PRESET="${arg#--preset=}" ;;
+  esac
+done
+
+if [[ -z "$SERVICE" ]] || [[ -z "$APP" ]] || [[ -z "$PRESET" ]]; then
+  echo "Usage: dokku sso:integrate <frontend-service> <app> --preset=<name>" >&2
+  echo "" >&2
+  echo "Set up OIDC integration for an app using a preset configuration." >&2
+  echo "Creates an OIDC client, sets environment variables, and protects the app." >&2
+  exit 1
+fi
+
+# Validate frontend service exists
+if ! frontend_service_exists "$SERVICE"; then
+  echo "!     Frontend service $SERVICE does not exist" >&2
+  exit 1
+fi
+
+# Check if app exists
+if ! "$DOKKU_BIN" apps:exists "$APP" < /dev/null 2>/dev/null; then
+  echo "!     App $APP does not exist" >&2
+  exit 1
+fi
+
+# Load preset
+PRESET_FILE="$PLUGIN_BASE_PATH/integrations/${PRESET}.sh"
+if [[ ! -f "$PRESET_FILE" ]]; then
+  echo "!     Preset '$PRESET' not found at $PRESET_FILE" >&2
+  exit 1
+fi
+
+# shellcheck source=/dev/null
+source "$PRESET_FILE"
+
+echo "-----> Integrating $APP with $SERVICE using preset '$PRESET'"
+
+SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
+CONFIG_DIR="$SERVICE_ROOT/config"
+
+# Ensure OIDC is enabled
+if [[ ! -f "$CONFIG_DIR/OIDC_ENABLED" ]] || [[ "$(cat "$CONFIG_DIR/OIDC_ENABLED")" != "true" ]]; then
+  echo "       Enabling OIDC on $SERVICE"
+  "$PLUGIN_BASE_PATH/subcommands/oidc_enable" "$SERVICE"
+fi
+
+# Get app domain
+DOMAIN="$("$DOKKU_BIN" domains:report "$APP" --domains-app-vhosts < /dev/null 2>/dev/null | head -1)"
+if [[ -z "$DOMAIN" ]]; then
+  echo "!     Could not determine domain for $APP" >&2
+  exit 1
+fi
+
+# Get auth domain from frontend service
+AUTH_DOMAIN=""
+if [[ -f "$CONFIG_DIR/DOMAIN" ]]; then
+  AUTH_DOMAIN="$(cat "$CONFIG_DIR/DOMAIN")"
+fi
+if [[ -z "$AUTH_DOMAIN" ]]; then
+  echo "!     Could not determine auth domain for $SERVICE" >&2
+  exit 1
+fi
+
+# Build redirect URI from preset
+REDIRECT_URI="$(preset_redirect_uri "$DOMAIN")"
+
+# Use app name as client ID
+CLIENT_ID="$APP"
+
+# Check if client already exists — skip creation if so
+if [[ -f "$CONFIG_DIR/oidc_clients/$CLIENT_ID" ]]; then
+  echo "       OIDC client $CLIENT_ID already exists, reusing"
+  CLIENT_SECRET="$(cat "$CONFIG_DIR/oidc_clients/$CLIENT_ID/SECRET" 2>/dev/null || true)"
+  if [[ -z "$CLIENT_SECRET" ]]; then
+    CLIENT_SECRET=$(openssl rand -hex 32)
+  fi
+else
+  # Generate client secret and create OIDC client
+  CLIENT_SECRET=$(openssl rand -hex 32)
+  echo "       Creating OIDC client: $CLIENT_ID"
+  load_frontend_provider "$SERVICE"
+  provider_add_oidc_client "$SERVICE" "$CLIENT_ID" "$CLIENT_SECRET" "$REDIRECT_URI"
+fi
+
+# Get env vars from preset
+echo "       Setting environment variables"
+ENV_VARS="$(preset_env_vars "$SERVICE" "$APP" "$CLIENT_ID" "$CLIENT_SECRET" "$AUTH_DOMAIN")"
+ENV_ARGS=()
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  ENV_ARGS+=("$line")
+done <<<"$ENV_VARS"
+
+if [[ ${#ENV_ARGS[@]} -gt 0 ]]; then
+  "$DOKKU_BIN" config:set --no-restart "$APP" "${ENV_ARGS[@]}" < /dev/null
+fi
+
+# Protect app with forward auth
+echo "       Protecting app with forward auth"
+load_frontend_provider "$SERVICE"
+provider_protect_app "$SERVICE" "$APP"
+
+# Apply Authelia config to pick up the new OIDC client
+echo "       Applying frontend configuration"
+"$PLUGIN_BASE_PATH/subcommands/frontend_apply" "$SERVICE"
+
+# Store integration state
+INTEGRATION_DIR="$SERVICE_ROOT/integrations/$APP"
+mkdir -p "$INTEGRATION_DIR"
+echo "$PRESET" > "$INTEGRATION_DIR/PRESET"
+echo "$CLIENT_ID" > "$INTEGRATION_DIR/CLIENT_ID"
+
+echo "-----> Integration complete"
+echo "       App: $APP"
+echo "       Preset: $PRESET"
+echo "       Client ID: $CLIENT_ID"
+echo "       Redirect URI: $REDIRECT_URI"
