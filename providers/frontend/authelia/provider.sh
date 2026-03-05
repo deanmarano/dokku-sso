@@ -130,6 +130,12 @@ provider_create_container() {
   echo "-----> Attaching to network $SSO_NETWORK"
   "$DOKKU_BIN" network:set "$APP_NAME" attach-post-create "$SSO_NETWORK" < /dev/null
 
+  # Check if letsencrypt is active before redeploying (redeploy can lose the cert)
+  local HAD_LETSENCRYPT=false
+  if "$DOKKU_BIN" letsencrypt:list < /dev/null 2>/dev/null | grep -q "^${APP_NAME} "; then
+    HAD_LETSENCRYPT=true
+  fi
+
   # Deploy from image or restart container if already deployed
   echo "-----> Deploying $PROVIDER_IMAGE:$PROVIDER_IMAGE_VERSION"
   if "$DOKKU_BIN" ps:report "$APP_NAME" --deployed < /dev/null 2>/dev/null | grep -q "true"; then
@@ -169,6 +175,12 @@ provider_create_container() {
     echo "!     Authelia failed to start" >&2
     "$DOKKU_BIN" logs "$APP_NAME" --num 20 < /dev/null 2>&1 >&2 || true
     return 1
+  fi
+
+  # Re-enable letsencrypt if it was active before the redeploy
+  if [[ "$HAD_LETSENCRYPT" == "true" ]]; then
+    echo "-----> Re-enabling letsencrypt for $APP_NAME"
+    "$DOKKU_BIN" letsencrypt:enable "$APP_NAME" < /dev/null || true
   fi
 }
 
