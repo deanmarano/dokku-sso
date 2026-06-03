@@ -589,7 +589,7 @@ location /.well-known/acme-challenge/ {
     allow all;
     auth_request off;
     auth_basic off;
-    root /var/lib/dokku/data/letsencrypt/\$APP;
+    root /var/lib/dokku/data/letsencrypt/${APP};
 }
 EOF
 
