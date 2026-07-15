@@ -567,7 +567,19 @@ provider_protect_app() {
 # Authelia forward auth - managed by dokku-sso plugin
 location /authelia-auth {
     internal;
-    proxy_pass ${URL_SCHEME}://$DOMAIN/api/authz/auth-request;
+    # Reach Authelia over the local nginx loopback rather than the public
+    # \$DOMAIN. This subrequest is issued by nginx on the Dokku host itself; when
+    # \$DOMAIN resolves to a public IP the host frequently cannot route back to
+    # itself (no NAT hairpin/loopback behind CGNAT or consumer routers such as
+    # eero), so proxying to the public name hangs and every protected request
+    # times out at the auth check. Connecting to 127.0.0.1 while presenting
+    # \$DOMAIN for TLS SNI and the Host header keeps the request on-box and still
+    # selects the Authelia vhost with a matching certificate and host — identical
+    # to what proxying to \$DOMAIN did back when it resolved to a local address.
+    proxy_pass ${URL_SCHEME}://127.0.0.1/api/authz/auth-request;
+    proxy_ssl_server_name on;
+    proxy_ssl_name $DOMAIN;
+    proxy_set_header Host $DOMAIN;
     proxy_pass_request_body off;
     proxy_ssl_verify off;
     proxy_set_header Content-Length "";
