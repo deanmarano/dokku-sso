@@ -426,6 +426,13 @@ generate_oidc_clients_yaml() {
     local HASHED_SECRET
     HASHED_SECRET=$(docker run --rm authelia/authelia:latest authelia crypto hash generate argon2 --password "$CLIENT_SECRET" 2>/dev/null | grep 'Digest:' | cut -d' ' -f2)
 
+    # Presets may declare several redirect URIs as a comma-separated list (web
+    # callback, account-settings page, mobile app scheme). Authelia matches
+    # redirect_uris exactly, so each one needs its own YAML entry; emitting the
+    # raw list produces a single URI that no real callback can ever match.
+    local REDIRECT_URIS_YAML
+    REDIRECT_URIS_YAML=$(echo "$REDIRECT_URI" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d; s/^/          - /')
+
     cat <<EOF
       - client_id: $CLIENT_ID
         client_name: $CLIENT_ID
@@ -434,7 +441,7 @@ generate_oidc_clients_yaml() {
         authorization_policy: one_factor
         consent_mode: implicit
         redirect_uris:
-          - $REDIRECT_URI
+$REDIRECT_URIS_YAML
         scopes:
           - openid
           - profile
