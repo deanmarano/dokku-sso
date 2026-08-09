@@ -39,6 +39,7 @@ dokku sso directory commands:
 
     sso:protect <app>                           add SSO protection (auto-detect frontend)
     sso:unprotect <app>                         remove SSO protection
+    sso:bypass <app> [paths|--clear]            exempt path prefixes from the auth check
     sso:oidc:setup <svc> <app> --preset=<name>   set up OIDC for app using preset
     sso:oidc:teardown <service> <app>           remove OIDC setup from app
 

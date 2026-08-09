@@ -612,6 +612,44 @@ location /.well-known/acme-challenge/ {
 }
 EOF
 
+  # Paths registered with `dokku sso:bypass` skip the auth subrequest. These are
+  # for machine callers that cannot complete an interactive Authelia flow —
+  # mobile apps, webhooks, OAuth callbacks — and that carry their own bearer
+  # tokens. Each bypass has to re-declare the proxy: nginx dispatches on the
+  # most specific prefix, so these locations replace `location /` for their
+  # paths and would otherwise match no handler and 404.
+  local BYPASS_FILE="$SERVICE_ROOT/bypass/$APP"
+  if [[ -s "$BYPASS_FILE" ]]; then
+    local UPSTREAM_PORT UPSTREAM
+    UPSTREAM_PORT=$("$DOKKU_BIN" ports:report "$APP" --ports-map < /dev/null 2>/dev/null | tr ' ' '\n' | head -1 | cut -d: -f3)
+    if [[ -z "$UPSTREAM_PORT" ]]; then
+      echo "!     Could not determine upstream port for $APP; skipping bypass paths" >&2
+    else
+      UPSTREAM="${APP}-${UPSTREAM_PORT}"
+      while IFS= read -r BYPASS_PATH; do
+        [[ -n "$BYPASS_PATH" ]] || continue
+        cat >> "$NGINX_CONF_DIR/forward-auth.conf" <<EOF
+
+# Bypass auth for $BYPASS_PATH (dokku sso:bypass)
+location $BYPASS_PATH {
+    auth_request off;
+    proxy_pass http://${UPSTREAM};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection \$http_connection;
+    proxy_set_header Host \$http_host;
+    proxy_set_header X-Forwarded-For \$remote_addr;
+    proxy_set_header X-Forwarded-Port \$server_port;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    # Long-lived websockets (e.g. a mobile app's push connection) must outlive
+    # the 60s read timeout Dokku applies to ordinary requests.
+    proxy_read_timeout 3600s;
+}
+EOF
+      done < "$BYPASS_FILE"
+    fi
+  fi
+
   # Directives injected into location / by the nginx-pre-reload trigger.
   # Stored in a .directives file so nginx doesn't include them at server level.
   cat > "$NGINX_CONF_DIR/forward-auth.directives" <<EOF
