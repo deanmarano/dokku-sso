@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Trigger: routing-app-capabilities
+#
+# Declares, in dokku-routing's terms, what this plugin does to an app's
+# routing. Without it, routing sees only the .conf files we drop into
+# nginx.conf.d, cannot know what they mean, and has to call the app
+# unmigratable on the strength of config it cannot read.
+#
+# Emits: <capability><TAB><detail><TAB><source>
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
+
+# shellcheck disable=SC2034  # desc/trigger are dokku's trigger self-documentation convention
+main() {
+  declare desc="declare routing capabilities imposed on an app"
+  declare trigger="routing-app-capabilities"
+  declare APP="$1"
+
+  [[ -n "$APP" ]] || return 0
+
+  local service_dir service provider bypass_file paths
+  for service_dir in "$PLUGIN_DATA_ROOT/frontend"/*/; do
+    [[ -d "$service_dir" ]] || continue
+    [[ -f "$service_dir/PROTECTED" ]] || continue
+    grep -qxF "$APP" "$service_dir/PROTECTED" 2>/dev/null || continue
+
+    service="$(basename "$service_dir")"
+
+    provider="unknown"
+    [[ -f "$service_dir/PROVIDER" ]] && provider="$(cat "$service_dir/PROVIDER")"
+    [[ -f "$service_dir/config/FRONTEND_PROVIDER" ]] &&
+      provider="$(cat "$service_dir/config/FRONTEND_PROVIDER")"
+
+    printf 'forward-auth\t%s via %s\tsso:protect\n' "$service" "$provider"
+
+    # Bypassed paths are part of the routing rule, not an implementation
+    # detail: they have to be reproduced on whatever proxy comes next.
+    bypass_file="$service_dir/bypass/$APP"
+    if [[ -s "$bypass_file" ]]; then
+      paths="$(tr '\n' ' ' <"$bypass_file")"
+      paths="${paths%"${paths##*[![:space:]]}"}"
+      printf 'vendor-settings\tauth bypass for %s\tsso:bypass\n' "$paths"
+    fi
+
+    return 0
+  done
+}
+
+main "$@"

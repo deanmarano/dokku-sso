@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Trigger: routing-proxy-support
+#
+# Declares which Dokku proxies this plugin works with, so dokku-routing can
+# warn that moving an app's proxy would also move it out from under its SSO
+# integration.
+#
+# Protection is injected by the nginx-pre-reload hook, which rewrites the
+# generated nginx.conf to add auth_request directives. That hook only fires for
+# nginx, and the other proxies run as containers with no equivalent seam, so
+# nginx is the only proxy where protection currently survives.
+#
+# Emits: <plugin><TAB><proxy><TAB><full|partial|none><TAB><note>
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+# shellcheck disable=SC2034  # desc/trigger are dokku's trigger self-documentation convention
+main() {
+  declare desc="declare which proxies this plugin supports"
+  declare trigger="routing-proxy-support"
+
+  cat <<'EOF'
+sso	nginx	full	auth_request injected by the nginx-pre-reload hook
+sso	traefik	none	no forwardAuth middleware wiring yet
+sso	caddy	none	no forward_auth directive wiring yet
+sso	openresty	none	no wiring yet; would need a Lua auth phase handler
+sso	haproxy	none	HAProxy has no forward-auth subrequest primitive
+EOF
+}
+
+main "$@"

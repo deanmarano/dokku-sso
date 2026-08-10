@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Trigger: routing-owned-config
+#
+# Claims the nginx config this plugin generates for an app. Anything in
+# nginx.conf.d is opaque to dokku-routing, so by default it forces manual
+# review -- correct for config a person wrote, wrong for config we generated
+# and have already described through routing-app-capabilities.
+#
+# Emits: one absolute path per line
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
+
+# shellcheck disable=SC2034  # desc/trigger are dokku's trigger self-documentation convention
+main() {
+  declare desc="claim the nginx config this plugin generates"
+  declare trigger="routing-owned-config"
+  declare APP="$1"
+
+  [[ -n "$APP" ]] || return 0
+
+  local app_conf_dir="${DOKKU_ROOT:-/home/dokku}/$APP/nginx.conf.d"
+  local service_dir
+
+  for service_dir in "$PLUGIN_DATA_ROOT/frontend"/*/; do
+    [[ -d "$service_dir" ]] || continue
+    [[ -f "$service_dir/PROTECTED" ]] || continue
+    grep -qxF "$APP" "$service_dir/PROTECTED" 2>/dev/null || continue
+
+    # Written by the frontend providers and by the nginx-pre-reload hook.
+    echo "$app_conf_dir/forward-auth.conf"
+    echo "$app_conf_dir/forward-auth.directives"
+    return 0
+  done
+}
+
+main "$@"

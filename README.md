@@ -131,6 +131,28 @@ Users added to `dokku-sso-default-users` are automatically synced to all app gro
 dokku sso:sync production
 ```
 
+## Proxy compatibility
+
+Protection is injected by the `nginx-pre-reload` hook, which rewrites the
+generated `nginx.conf` to add `auth_request` directives. That hook only fires
+for nginx, so **an app's protection does not survive a change of proxy** --
+moving it to Traefik, Caddy, HAProxy or OpenResty leaves it publicly reachable.
+
+If [dokku-routing](https://github.com/deanmarano/dokku-routing) is installed, it
+reports this before you migrate. Three triggers describe what this plugin does
+to an app's routing:
+
+| Trigger | Declares |
+|---|---|
+| `routing-app-capabilities <app>` | that the app uses forward auth, plus any bypass paths |
+| `routing-owned-config <app>` | the `nginx.conf.d` files this plugin generates |
+| `routing-proxy-support` | that only nginx is supported |
+
+The middle one matters most: without it, `routing` finds an unreadable `.conf`
+file in `nginx.conf.d`, has to assume a person wrote it, and blocks the
+migration for a reason nobody can act on. Claiming the file lets the app be
+judged on the capability instead.
+
 ## Development
 
 ```bash
