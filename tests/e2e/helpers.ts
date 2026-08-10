@@ -449,11 +449,29 @@ export function pluginAvailable(plugin: string): boolean {
   }
 }
 
+/**
+ * True if /etc/hosts already maps this exact hostname.
+ *
+ * Compares hostnames, not substrings. `test-radarr-auth.test.local` ends with
+ * `auth.test.local`, so a substring test reports the auth domain as already
+ * present the moment the app domain is added. The auth domain then never gets
+ * an entry, and the forward-auth redirect lands on a host the browser cannot
+ * resolve -- while every app whose name happens not to end in the auth domain
+ * works fine.
+ */
+export function hostsFileHasEntry(hostsContents: string, domain: string): boolean {
+  return hostsContents
+    .split('\n')
+    .map((line) => line.split('#')[0].trim())
+    .filter(Boolean)
+    .some((line) => line.split(/\s+/).slice(1).includes(domain));
+}
+
 /** Add a hostname to /etc/hosts pointing to 127.0.0.1. */
 export function addHostsEntry(domain: string): void {
   try {
     const hosts = execSync('cat /etc/hosts', { encoding: 'utf-8' });
-    if (!hosts.includes(domain)) {
+    if (!hostsFileHasEntry(hosts, domain)) {
       execSync(`echo "127.0.0.1 ${domain}" | sudo tee -a /etc/hosts`, {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
