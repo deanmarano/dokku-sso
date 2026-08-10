@@ -91,6 +91,19 @@ describe('sso:bypass path generation', () => {
     expect(conf).toContain('proxy_set_header Upgrade $http_upgrade;');
   });
 
+  it('should build redirects from the app scheme, not a hardcoded https', () => {
+    // Authelia derives its post-login redirect from these. Hardcoding https
+    // sends anyone on an app deployed without TLS to a URL that does not
+    // answer, leaving them on Authelia's "Authenticated" page.
+    writeBypass(root, 'production', 'homeassistant', ['/api/']);
+    const conf = protectApp(root, 'production', 'homeassistant');
+
+    expect(conf).toContain('X-Original-URL $scheme://$http_host$request_uri');
+    expect(conf).toContain('rd=$scheme://$http_host$request_uri');
+    expect(conf).not.toContain('X-Original-URL https://$http_host');
+    expect(conf).not.toContain('rd=https://$http_host');
+  });
+
   it('should still protect the ACME challenge path and login redirect', () => {
     writeBypass(root, 'production', 'homeassistant', ['/api/']);
     const conf = protectApp(root, 'production', 'homeassistant');
