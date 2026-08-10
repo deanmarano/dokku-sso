@@ -99,3 +99,78 @@ describe('sso:bypass path generation', () => {
     expect(conf).toContain('location @forward_auth_login');
   });
 });
+
+/**
+ * Exercises the sso:bypass subcommand itself, which validates and stores the
+ * paths that the provider config above is generated from.
+ */
+describe('sso:bypass validation', () => {
+  let root: string;
+  let bypassFile: string;
+
+  function runBypass(app: string, paths: string): { exitCode: number; stderr: string } {
+    const binDir = join(root, 'stub-bin');
+    mkdirSync(binDir, { recursive: true });
+    const dokkuStub = join(binDir, 'dokku');
+    writeFileSync(
+      dokkuStub,
+      `#!/usr/bin/env bash
+case "$1" in
+  ports:report) echo "http:80:8123 https:443:8123" ;;
+  *) : ;;
+esac
+`
+    );
+    chmodSync(dokkuStub, 0o755);
+
+    try {
+      execSync(
+        `DOKKU_LIB_ROOT="${root}" DOKKU_ROOT="${root}/dokku" DOKKU_BIN="${dokkuStub}" ` +
+          `bash "${join(PLUGIN_DIR, 'subcommands/bypass')}" "${app}" "${paths}"`,
+        { encoding: 'utf-8', timeout: 20000, stdio: 'pipe' }
+      );
+      return { exitCode: 0, stderr: '' };
+    } catch (e: any) {
+      return { exitCode: e.status ?? 1, stderr: e.stderr ?? '' };
+    }
+  }
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'sso-bypass-cmd-'));
+    const serviceRoot = join(root, 'services/sso/frontend/production');
+    mkdirSync(serviceRoot, { recursive: true });
+    writeFileSync(join(serviceRoot, 'PROTECTED'), 'myapp\n');
+    // Regeneration runs after a successful write and needs the service domain.
+    mkdirSync(join(serviceRoot, 'config'), { recursive: true });
+    writeFileSync(join(serviceRoot, 'config', 'DOMAIN'), 'auth.example.com\n');
+    mkdirSync(join(root, 'dokku', 'myapp'), { recursive: true });
+    bypassFile = join(serviceRoot, 'bypass', 'myapp');
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('stores absolute paths, one per line', () => {
+    const { exitCode } = runBypass('myapp', '/api/*, /feed/*');
+    expect(exitCode).toBe(0);
+    expect(readFileSync(bypassFile, 'utf-8')).toBe('/api/*\n/feed/*\n');
+  });
+
+  it('rejects a relative path', () => {
+    const { exitCode, stderr } = runBypass('myapp', 'api');
+    expect(exitCode).not.toBe(0);
+    expect(stderr).toContain('must start with /');
+  });
+
+  it('writes nothing at all when one path in the list is rejected', () => {
+    // A partial write would leave the app bypassing paths nobody asked for.
+    runBypass('myapp', '/api/*,relative');
+    expect(existsSync(bypassFile)).toBe(false);
+  });
+
+  it('leaves no temp file behind on rejection', () => {
+    runBypass('myapp', '/api/*,relative');
+    expect(existsSync(`${bypassFile}.tmp`)).toBe(false);
+  });
+});

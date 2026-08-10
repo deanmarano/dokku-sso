@@ -79,16 +79,22 @@ if [[ "$PATHS" == "--clear" ]]; then
   echo "-----> Cleared bypass paths for $APP"
 else
   # Every path must be absolute — nginx location prefixes start with /, and a
-  # bare word would silently match nothing.
-  echo "$PATHS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' > "$BYPASS_FILE.tmp"
+  # bare word would silently match nothing. Validate before writing anything,
+  # so a rejected argument cannot leave a stray temp file behind.
+  NORMALIZED="$(echo "$PATHS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d')"
   while IFS= read -r p; do
+    [[ -z "$p" ]] && continue
     if [[ "$p" != /* ]]; then
-      rm -f "$BYPASS_FILE.tmp"
       echo "!     Bypass path must start with /: $p" >&2
       exit 1
     fi
-  done < "$BYPASS_FILE.tmp"
-  mv "$BYPASS_FILE.tmp" "$BYPASS_FILE"
+  done <<<"$NORMALIZED"
+
+  if [[ -n "$NORMALIZED" ]]; then
+    printf '%s\n' "$NORMALIZED" >"$BYPASS_FILE"
+  else
+    : >"$BYPASS_FILE"
+  fi
 
   echo "-----> Bypass paths for $APP:"
   while IFS= read -r p; do

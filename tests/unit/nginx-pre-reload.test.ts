@@ -57,37 +57,59 @@ function setupTestDir() {
 }
 
 /**
- * Creates an app with an nginx.conf and optionally a forward-auth.conf.
+ * Creates an app with an nginx.conf and optionally the two files the frontend
+ * providers write into nginx.conf.d.
+ *
+ * These are separate on purpose, and the trigger only reads the second:
+ *   forward-auth.conf        server-level location blocks, included by nginx
+ *   forward-auth.directives  the lines injected into each `location /`
+ *
+ * Passing the server-level config where the directives belong would inject
+ * `location` blocks inside `location /`, which nginx rejects.
  */
 function createApp(
   dokkuRoot: string,
   appName: string,
   nginxConf: string,
-  forwardAuthConf?: string
+  forwardAuthConf?: string,
+  forwardAuthDirectives?: string
 ) {
   const appDir = join(dokkuRoot, appName);
   mkdirSync(appDir, { recursive: true });
   writeFileSync(join(appDir, 'nginx.conf'), nginxConf);
 
-  if (forwardAuthConf) {
-    const confDir = join(appDir, 'nginx.conf.d');
+  const confDir = join(appDir, 'nginx.conf.d');
+  if (forwardAuthConf || forwardAuthDirectives) {
     mkdirSync(confDir, { recursive: true });
+  }
+  if (forwardAuthConf) {
     writeFileSync(join(confDir, 'forward-auth.conf'), forwardAuthConf);
+  }
+  if (forwardAuthDirectives) {
+    writeFileSync(join(confDir, 'forward-auth.directives'), forwardAuthDirectives);
   }
 }
 
 /**
  * Creates a frontend service with a PROTECTED file listing the given apps.
+ *
+ * The provider matters when the directives file is missing: the trigger can
+ * regenerate it for Authelia, but has nothing to regenerate for anything else.
  */
 function createFrontendService(
   servicesRoot: string,
   serviceName: string,
-  protectedApps: string[]
+  protectedApps: string[],
+  provider?: string
 ) {
   const serviceDir = join(servicesRoot, 'sso', 'frontend', serviceName);
   mkdirSync(serviceDir, { recursive: true });
   if (protectedApps.length > 0) {
     writeFileSync(join(serviceDir, 'PROTECTED'), protectedApps.join('\n') + '\n');
+  }
+  if (provider) {
+    mkdirSync(join(serviceDir, 'config'), { recursive: true });
+    writeFileSync(join(serviceDir, 'config', 'FRONTEND_PROVIDER'), provider + '\n');
   }
 }
 
@@ -192,6 +214,22 @@ auth_request_set $authentik_name $upstream_http_remote_name;
 auth_request_set $authentik_email $upstream_http_remote_email;
 error_page 401 = @forward_auth_login;`;
 
+// Only the injected lines, matching what the providers write to
+// forward-auth.directives.
+const AUTHELIA_DIRECTIVES = `auth_request /authelia-auth;
+auth_request_set $authelia_user $upstream_http_remote_user;
+auth_request_set $authelia_groups $upstream_http_remote_groups;
+auth_request_set $authelia_name $upstream_http_remote_name;
+auth_request_set $authelia_email $upstream_http_remote_email;
+error_page 401 = @forward_auth_login;`;
+
+const AUTHENTIK_DIRECTIVES = `auth_request /outpost.goauthentik.io;
+auth_request_set $authentik_user $upstream_http_remote_user;
+auth_request_set $authentik_groups $upstream_http_remote_groups;
+auth_request_set $authentik_name $upstream_http_remote_name;
+auth_request_set $authentik_email $upstream_http_remote_email;
+error_page 401 = @forward_auth_login;`;
+
 describe('nginx-pre-reload trigger', () => {
   let tmpDir: string;
   let dokkuRoot: string;
@@ -233,20 +271,39 @@ describe('nginx-pre-reload trigger', () => {
     expect(conf).toBe(SAMPLE_NGINX_CONF);
   });
 
-  it('should exit cleanly when app is protected but forward-auth.conf is missing', () => {
-    createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF);
-    createFrontendService(servicesRoot, 'auth-service', ['myapp']);
+  it('should leave nginx.conf alone when directives are missing and cannot be regenerated', () => {
+    // Only Authelia's directives can be reconstructed from scratch. For any
+    // other provider there is nothing to fall back on, so the trigger has to
+    // leave the config untouched rather than inject the wrong provider's rules.
+    createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHENTIK_FORWARD_AUTH_CONF);
+    createFrontendService(servicesRoot, 'auth-service', ['myapp'], 'authentik');
+
     const result = runTrigger(tmpDir, 'myapp');
     expect(result.exitCode).toBe(0);
 
-    // nginx.conf should be unmodified
     const conf = readFileSync(join(dokkuRoot, 'myapp', 'nginx.conf'), 'utf-8');
     expect(conf).toBe(SAMPLE_NGINX_CONF);
   });
 
+  it('should regenerate missing Authelia directives, so a redeploy cannot drop protection', () => {
+    // A redeploy regenerates nginx.conf and can lose the directives file. If
+    // the trigger simply skipped, the app would come back publicly reachable.
+    createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF);
+    createFrontendService(servicesRoot, 'auth-service', ['myapp'], 'authelia');
+
+    const result = runTrigger(tmpDir, 'myapp');
+    expect(result.exitCode).toBe(0);
+
+    const directives = join(dokkuRoot, 'myapp', 'nginx.conf.d', 'forward-auth.directives');
+    expect(existsSync(directives)).toBe(true);
+
+    const conf = readFileSync(join(dokkuRoot, 'myapp', 'nginx.conf'), 'utf-8');
+    expect(conf).toContain('auth_request /authelia-auth;');
+  });
+
   describe('Authelia injection', () => {
     it('should inject auth directives into location / blocks', () => {
-      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF);
+      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF, AUTHELIA_DIRECTIVES);
       createFrontendService(servicesRoot, 'auth-service', ['myapp']);
 
       const result = runTrigger(tmpDir, 'myapp');
@@ -264,7 +321,7 @@ describe('nginx-pre-reload trigger', () => {
     });
 
     it('should inject into both HTTP and HTTPS location / blocks', () => {
-      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF);
+      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF, AUTHELIA_DIRECTIVES);
       createFrontendService(servicesRoot, 'auth-service', ['myapp']);
 
       runTrigger(tmpDir, 'myapp');
@@ -278,7 +335,7 @@ describe('nginx-pre-reload trigger', () => {
     });
 
     it('should add auth_request off to error page locations', () => {
-      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF);
+      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF, AUTHELIA_DIRECTIVES);
       createFrontendService(servicesRoot, 'auth-service', ['myapp']);
 
       runTrigger(tmpDir, 'myapp');
@@ -294,7 +351,7 @@ describe('nginx-pre-reload trigger', () => {
     });
 
     it('should indent injected directives correctly', () => {
-      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF);
+      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF, AUTHELIA_DIRECTIVES);
       createFrontendService(servicesRoot, 'auth-service', ['myapp']);
 
       runTrigger(tmpDir, 'myapp');
@@ -312,7 +369,7 @@ describe('nginx-pre-reload trigger', () => {
 
   describe('Authentik injection', () => {
     it('should inject Authentik auth directives into location / blocks', () => {
-      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHENTIK_FORWARD_AUTH_CONF);
+      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHENTIK_FORWARD_AUTH_CONF, AUTHENTIK_DIRECTIVES);
       createFrontendService(servicesRoot, 'auth-service', ['myapp']);
 
       const result = runTrigger(tmpDir, 'myapp');
@@ -332,7 +389,7 @@ describe('nginx-pre-reload trigger', () => {
         'proxy_pass  http://myapp-5000;',
         'auth_request /authelia-auth;\n    proxy_pass  http://myapp-5000;'
       );
-      createApp(dokkuRoot, 'myapp', confWithAuth, AUTHELIA_FORWARD_AUTH_CONF);
+      createApp(dokkuRoot, 'myapp', confWithAuth, AUTHELIA_FORWARD_AUTH_CONF, AUTHELIA_DIRECTIVES);
       createFrontendService(servicesRoot, 'auth-service', ['myapp']);
 
       runTrigger(tmpDir, 'myapp');
@@ -349,7 +406,7 @@ describe('nginx-pre-reload trigger', () => {
         'proxy_pass  http://myapp-5000;',
         'auth_request /outpost.goauthentik.io;\n    proxy_pass  http://myapp-5000;'
       );
-      createApp(dokkuRoot, 'myapp', confWithAuth, AUTHENTIK_FORWARD_AUTH_CONF);
+      createApp(dokkuRoot, 'myapp', confWithAuth, AUTHENTIK_FORWARD_AUTH_CONF, AUTHENTIK_DIRECTIVES);
       createFrontendService(servicesRoot, 'auth-service', ['myapp']);
 
       runTrigger(tmpDir, 'myapp');
@@ -363,7 +420,7 @@ describe('nginx-pre-reload trigger', () => {
 
   describe('directive extraction', () => {
     it('should not extract auth_request off from inside location blocks', () => {
-      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF);
+      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF, AUTHELIA_DIRECTIVES);
       createFrontendService(servicesRoot, 'auth-service', ['myapp']);
 
       runTrigger(tmpDir, 'myapp');
@@ -403,7 +460,7 @@ describe('nginx-pre-reload trigger', () => {
 
   describe('multiple services', () => {
     it('should find app protected by any frontend service', () => {
-      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF);
+      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF, AUTHELIA_DIRECTIVES);
       // App is protected by the second service, not the first
       createFrontendService(servicesRoot, 'service-a', ['other-app']);
       createFrontendService(servicesRoot, 'service-b', ['myapp']);
@@ -416,7 +473,7 @@ describe('nginx-pre-reload trigger', () => {
     });
 
     it('should not inject when app is not in any PROTECTED file', () => {
-      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF);
+      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF, AUTHELIA_DIRECTIVES);
       createFrontendService(servicesRoot, 'service-a', ['other-app']);
       createFrontendService(servicesRoot, 'service-b', ['another-app']);
 
@@ -444,7 +501,7 @@ describe('nginx-pre-reload trigger', () => {
     });
 
     it('should not inject into non-root location blocks', () => {
-      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF);
+      createApp(dokkuRoot, 'myapp', SAMPLE_NGINX_CONF, AUTHELIA_FORWARD_AUTH_CONF, AUTHELIA_DIRECTIVES);
       createFrontendService(servicesRoot, 'auth-service', ['myapp']);
 
       runTrigger(tmpDir, 'myapp');
