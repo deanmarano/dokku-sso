@@ -130,14 +130,6 @@ provider_create_container() {
   echo "-----> Attaching to network $SSO_NETWORK"
   "$DOKKU_BIN" network:set "$APP_NAME" attach-post-create "$SSO_NETWORK" < /dev/null
 
-  # Authelia validates LDAP connectivity at startup and exits fatally if the
-  # directory service isn't reachable yet. On host reboot Dokku restores apps in
-  # arbitrary order, so Authelia can lose the race against LLDAP. Dokku has no
-  # inter-app dependency ordering, so use an unbounded restart policy: the
-  # container keeps retrying until the directory service is up.
-  echo "-----> Setting restart policy"
-  "$DOKKU_BIN" ps:set "$APP_NAME" restart-policy always < /dev/null
-
   # Check if letsencrypt is active before redeploying (redeploy can lose the cert)
   local HAD_LETSENCRYPT=false
   if "$DOKKU_BIN" letsencrypt:list < /dev/null 2>/dev/null | grep -q "^${APP_NAME} "; then
@@ -599,11 +591,7 @@ location /authelia-auth {
     proxy_ssl_verify off;
     proxy_set_header Content-Length "";
     proxy_set_header X-Original-Method \$request_method;
-    # The app's own scheme, not a hardcoded https. Authelia builds its
-    # post-login redirect from this, so hardcoding https sends anyone on an
-    # app deployed without TLS to a URL that does not answer, and they land
-    # on Authelia's "Authenticated" page instead of the app.
-    proxy_set_header X-Original-URL \$scheme://\$http_host\$request_uri;
+    proxy_set_header X-Original-URL https://\$http_host\$request_uri;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto \$scheme;
     proxy_set_header X-Forwarded-Host \$http_host;
@@ -612,7 +600,7 @@ location /authelia-auth {
 
 location @forward_auth_login {
     auth_request off;
-    return 302 ${URL_SCHEME}://$DOMAIN/?rd=\$scheme://\$http_host\$request_uri;
+    return 302 ${URL_SCHEME}://$DOMAIN/?rd=https://\$http_host\$request_uri;
 }
 
 # Bypass auth for ACME challenges (letsencrypt)
