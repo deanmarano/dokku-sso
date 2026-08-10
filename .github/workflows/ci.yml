@@ -47,9 +47,14 @@ jobs:
           filters: |
             # Core plugin code - any change here triggers all tests
             core:
+              # The workflow decides how the plugin is installed, which is
+              # exactly the kind of change that can leave every app in CI
+              # unprotected while the plugin's own commands keep working.
+              - '.github/workflows/ci.yml'
               - 'commands'
               - 'config'
               - 'install'
+              - 'nginx-pre-reload'
               - 'subcommands/**'
               - 'providers/loader.sh'
               - 'providers/directory/lldap/**'
