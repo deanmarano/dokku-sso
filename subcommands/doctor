@@ -212,6 +212,40 @@ if [[ -s "$SERVICE_ROOT/LINKS" ]]; then
   done < "$SERVICE_ROOT/LINKS"
 fi
 
+# Each protected app, checked against the proxy actually in front of it.
+FRONTEND_ROOT="$PLUGIN_DATA_ROOT/frontend"
+for service_dir in "$FRONTEND_ROOT"/*/; do
+  [[ -d "$service_dir" ]] || continue
+  [[ -s "$service_dir/PROTECTED" ]] || continue
+
+  DESCRIPTOR="$(mktemp)"
+  load_frontend_provider "$(basename "$service_dir")"
+  provider_forward_auth_descriptor "$(basename "$service_dir")" > "$DESCRIPTOR" 2>/dev/null || true
+
+  while IFS= read -r protected_app; do
+    [[ -n "$protected_app" ]] || continue
+    printf '       %-28s ' "$protected_app"
+    if ! "$DOKKU_BIN" apps:exists "$protected_app" < /dev/null 2>/dev/null; then
+      echo "SKIPPED - app no longer exists"
+      continue
+    fi
+    if ! load_proxy_adapter "$protected_app" 2>/dev/null; then
+      echo "FAILED - no adapter for its proxy; app is not protected"
+      ISSUES=$((ISSUES + 1))
+      continue
+    fi
+    REASON="$(proxy_doctor_app "$protected_app" "$DESCRIPTOR" || true)"
+    if [[ -z "$REASON" ]]; then
+      echo "OK ($PROXY_NAME)"
+    else
+      echo "FAILED - $REASON"
+      ISSUES=$((ISSUES + 1))
+    fi
+  done < "$service_dir/PROTECTED"
+
+  rm -f "$DESCRIPTOR"
+done
+
 # Verbose: show logs
 if [[ -n "$VERBOSE" ]]; then
   echo ""

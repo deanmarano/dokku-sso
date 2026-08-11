@@ -169,6 +169,12 @@ export default defineConfig({
 
     // Radarr forward auth tests (Authelia protecting Radarr)
     {
+      name: 'traefik-forward-auth',
+      testMatch: ['traefik-forward-auth.spec.ts'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+
+    {
       name: 'radarr-forward-auth',
       testMatch: ['radarr-forward-auth.spec.ts'],
       use: { ...devices['Desktop Chrome'] },

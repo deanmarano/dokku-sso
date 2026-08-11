@@ -105,10 +105,11 @@ fi
 # Only regenerate if the app is currently protected; otherwise the stored
 # paths just wait for the next protect.
 if [[ -f "$SERVICE_ROOT/PROTECTED" ]] && grep -qx "$APP" "$SERVICE_ROOT/PROTECTED"; then
-  echo "-----> Regenerating nginx config for $APP"
+  # Re-protecting re-renders the bypass paths for whichever proxy is in front
+  # of the app; each adapter owns how its own config is applied.
+  echo "-----> Reapplying protection for $APP"
   load_frontend_provider "$SERVICE"
   provider_protect_app "$SERVICE" "$APP"
-  "$DOKKU_BIN" proxy:build-config "$APP" < /dev/null
   echo "-----> Applied"
 else
   echo "       $APP is not protected; paths saved for when it is"

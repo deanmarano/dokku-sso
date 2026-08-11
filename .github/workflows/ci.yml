@@ -35,6 +35,7 @@ jobs:
       jellyfin: ${{ steps.filter.outputs.jellyfin }}
       immich: ${{ steps.filter.outputs.immich }}
       radarr: ${{ steps.filter.outputs.radarr }}
+      traefik-auth: ${{ steps.filter.outputs.traefik-auth }}
       multi-app: ${{ steps.filter.outputs.multi-app }}
       authentik-grafana: ${{ steps.filter.outputs.authentik-grafana }}
       authentik-oauth2-proxy: ${{ steps.filter.outputs.authentik-oauth2-proxy }}
@@ -59,6 +60,7 @@ jobs:
               - 'providers/loader.sh'
               - 'providers/directory/lldap/**'
               - 'providers/frontend/authelia/**'
+              - 'providers/proxy/**'
               - 'package.json'
               - 'package-lock.json'
               - 'tsconfig.json'
@@ -132,6 +134,10 @@ jobs:
             radarr:
               - 'integrations/radarr.sh'
               - 'tests/e2e/radarr-forward-auth.spec.ts'
+
+            traefik-auth:
+              - 'providers/proxy/traefik/**'
+              - 'tests/e2e/traefik-forward-auth.spec.ts'
 
             multi-app:
               - 'tests/e2e/multi-app-integration.spec.ts'
@@ -1080,6 +1086,74 @@ jobs:
           echo "=== Radarr logs ===" && docker logs radarr-test 2>&1 | tail -100 || true
           echo "=== nginx logs ===" && docker logs nginx-radarr-proxy 2>&1 | tail -100 || true
           echo "=== Authelia logs ===" && sudo dokku sso:frontend:logs radarr-auth-fe -n 100 2>/dev/null || true
+
+  e2e-traefik-forward-auth:
+    name: E2E - Traefik Forward Auth
+    runs-on: ubuntu-24.04
+    needs: changes
+    if: |
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/trunk') &&
+      (needs.changes.outputs.core == 'true' || needs.changes.outputs.e2e-shared == 'true' || needs.changes.outputs.traefik-auth == 'true' || needs.changes.outputs.frontend == 'true')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+      - name: Install Dokku
+        run: |
+          wget -NP . https://dokku.com/install/v0.37.6/bootstrap.sh
+          sudo DOKKU_TAG=v0.37.6 bash bootstrap.sh
+          echo "$USER ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/dokku-runner
+          sudo chmod 0440 /etc/sudoers.d/dokku-runner
+      - name: Install plugin
+        run: |
+          sudo mkdir -p /var/lib/dokku/plugins/available/sso
+          sudo cp -r ./* /var/lib/dokku/plugins/available/sso/
+          sudo ln -sf /var/lib/dokku/plugins/available/sso /var/lib/dokku/plugins/enabled/sso
+          sudo mkdir -p /var/lib/dokku/services/sso
+          sudo chown -R dokku:dokku /var/lib/dokku/services/sso
+          sudo dokku plugin:install-dependencies sso || true
+      - name: Install dokku-library plugin
+        run: |
+          sudo dokku plugin:install https://github.com/deanmarano/dokkufile.git dokkufile || true
+          sudo dokku plugin:install https://github.com/deanmarano/dokku-library.git library || true
+      - name: Setup /etc/hosts for forward auth testing
+        run: |
+          echo "127.0.0.1 traefik-auth.test.local" | sudo tee -a /etc/hosts
+          echo "127.0.0.1 traefik-app.test.local" | sudo tee -a /etc/hosts
+      - name: Run Radarr Forward Auth tests
+        run: npx playwright test --project=traefik-forward-auth
+        env:
+          CI: true
+          DOKKU_HOST: local
+          DOKKU_USE_SUDO: 'true'
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-traefik-forward-auth
+          path: test-results/
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker containers ===" && docker ps -a
+          echo "=== Auth services ===" && sudo dokku sso:list 2>/dev/null || true
+          sudo dokku sso:frontend:list 2>/dev/null || true
+          echo "=== App logs ===" && docker logs test-traefik-auth 2>&1 | tail -100 || true
+          echo "=== traefik logs ===" && sudo dokku traefik:show-config test-traefik-auth 2>&1 | tail -100 || true
+          echo "=== Authelia logs ===" && sudo dokku sso:frontend:logs traefik-auth-fe -n 100 2>/dev/null || true
 
   e2e-jellyfin-ldap:
     name: E2E - Jellyfin LDAP

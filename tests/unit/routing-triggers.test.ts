@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -141,7 +141,7 @@ describe('routing triggers', () => {
   });
 
   describe('routing-proxy-support', () => {
-    it('supports nginx and nothing else, since the hook is nginx-only', () => {
+    it('supports the proxies that have an adapter, and no others', () => {
       const { exitCode, stdout } = runTrigger('routing-proxy-support', tmpDir);
       expect(exitCode).toBe(0);
 
@@ -151,8 +151,9 @@ describe('routing triggers', () => {
         .map((l) => l.split('\t'));
       const support = Object.fromEntries(rows.map((f) => [f[1], f[2]]));
 
+      // One adapter per supported proxy under providers/proxy/.
       expect(support.nginx).toBe('full');
-      expect(support.traefik).toBe('none');
+      expect(support.traefik).toBe('full');
       expect(support.caddy).toBe('none');
       expect(support.openresty).toBe('none');
       expect(support.haproxy).toBe('none');
@@ -167,5 +168,28 @@ describe('routing triggers', () => {
         expect(fields[3]).not.toBe('');
       }
     });
+  });
+});
+
+describe('declared proxy support matches the adapters that exist', () => {
+  it('claims full support exactly for the proxies with an adapter', () => {
+    // The trigger is what dokku-routing believes; providers/proxy is what is
+    // true. Drift between them means routing either blocks a migration that
+    // would work, or approves one that leaves the app unprotected.
+    const adapters = readdirSync(join(PLUGIN_DIR, 'providers/proxy'), { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+
+    const { stdout } = runTrigger('routing-proxy-support', mkdtempSync(join(tmpdir(), 'sso-support-')));
+    const full = stdout
+      .trim()
+      .split('\n')
+      .map((l) => l.split('\t'))
+      .filter((f) => f[2] === 'full')
+      .map((f) => f[1])
+      .sort();
+
+    expect(full).toEqual(adapters);
   });
 });

@@ -125,3 +125,51 @@ get_frontend_app_name() {
     echo ""
   fi
 }
+
+# Read one field from a forward-auth descriptor file.
+#
+# The descriptor is how a frontend provider describes its forward auth without
+# knowing which proxy will render it: key=value lines, emitted by
+# provider_forward_auth_descriptor. Keeps frontends x proxies from becoming
+# NxM code -- each side implements one thing.
+fn-descriptor-get() {
+  local file="$1" key="$2"
+  [[ -f "$file" ]] || return 0
+  local line
+  line="$(grep -m1 "^${key}=" "$file" 2>/dev/null || true)"
+  printf '%s' "${line#*=}"
+}
+
+# Load the proxy adapter for an app, chosen by the proxy actually in front of
+# it. "Proxy type" holds only an explicit per-app override and is usually
+# empty; the computed value folds in the global default.
+load_proxy_adapter() {
+  local APP="$1"
+  local PROXY
+
+  # Derive our own location when config has not been sourced. Without this the
+  # adapter lookup below fails and reports the proxy as unsupported, which
+  # reads as "this proxy cannot be protected" rather than "the plugin is
+  # misconfigured".
+  local BASE_PATH="${PLUGIN_BASE_PATH:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+  PROXY="$("$DOKKU_BIN" proxy:report "$APP" --proxy-computed-type < /dev/null 2>/dev/null | xargs || true)"
+  [[ -z "$PROXY" ]] && PROXY="nginx"
+
+  local ADAPTER_PATH="$BASE_PATH/providers/proxy/$PROXY/proxy.sh"
+  if [[ ! -f "$ADAPTER_PATH" ]]; then
+    echo "!     $APP is served by the $PROXY proxy, which dokku-sso cannot protect" >&2
+    local supported=""
+    local d
+    for d in "$BASE_PATH/providers/proxy"/*/; do
+      [[ -d "$d" ]] || continue
+      supported+="$(basename "$d") "
+    done
+    echo "       Supported: $supported" >&2
+    echo "       The app is reachable without authentication until this is resolved." >&2
+    return 1
+  fi
+
+  # shellcheck source=/dev/null
+  source "$ADAPTER_PATH"
+}

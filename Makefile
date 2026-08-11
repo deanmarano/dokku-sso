@@ -74,6 +74,7 @@ lint:
 	@shellcheck -x providers/loader.sh
 	@shellcheck -x providers/directory/*/provider.sh
 	@shellcheck -x providers/frontend/*/provider.sh
+	@shellcheck -x providers/proxy/*/proxy.sh
 	@shellcheck -x routing-app-capabilities routing-owned-config routing-proxy-support
 	@echo "Shellcheck passed!"
 

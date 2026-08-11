@@ -533,6 +533,33 @@ provider_use_directory() {
   generate_authelia_config "$SERVICE"
 }
 
+# Describe this frontend's forward auth so a proxy adapter can render it.
+#
+# Emits key=value lines. Authelia's own paths and headers live here; the proxy
+# adapters know nothing about which frontend they are wiring up.
+provider_forward_auth_descriptor() {
+  local SERVICE="$1"
+  local SERVICE_ROOT="$PLUGIN_DATA_ROOT/frontend/$SERVICE"
+  local CONFIG_DIR="$SERVICE_ROOT/config"
+
+  local DOMAIN APP_NAME
+  DOMAIN=$(cat "$CONFIG_DIR/DOMAIN")
+  APP_NAME=$(get_frontend_app_name "$SERVICE")
+
+  cat <<EOF
+service=$SERVICE
+auth_domain=$DOMAIN
+auth_app=$APP_NAME
+auth_scheme=https
+internal_host=$APP_NAME.web
+internal_port=9091
+auth_request_path=/api/authz/auth-request
+forward_auth_path=/api/authz/forward-auth
+response_headers=Remote-User,Remote-Groups,Remote-Email,Remote-Name
+login_url=https://$DOMAIN/
+EOF
+}
+
 # Protect an app with Authelia
 provider_protect_app() {
   local SERVICE="$1"
@@ -563,113 +590,17 @@ provider_protect_app() {
   echo "$APP" >> "$SERVICE_ROOT/PROTECTED"
   sort -u "$SERVICE_ROOT/PROTECTED" -o "$SERVICE_ROOT/PROTECTED"
 
-  # Write nginx forward auth config
-  # The nginx-pre-reload trigger injects auth_request/error_page into location /
-  # This file provides: supporting locations + directives for the trigger to extract
-  local DOKKU_ROOT="${DOKKU_ROOT:-/home/dokku}"
-  local NGINX_CONF_DIR="$DOKKU_ROOT/$APP/nginx.conf.d"
-  mkdir -p "$NGINX_CONF_DIR"
-  # Server-level locations (included by nginx via *.conf glob)
-  cat > "$NGINX_CONF_DIR/forward-auth.conf" <<EOF
-# Authelia forward auth - managed by dokku-sso plugin
-location /authelia-auth {
-    internal;
-    # Reach Authelia over the local nginx loopback rather than the public
-    # \$DOMAIN. This subrequest is issued by nginx on the Dokku host itself; when
-    # \$DOMAIN resolves to a public IP the host frequently cannot route back to
-    # itself (no NAT hairpin/loopback behind CGNAT or consumer routers such as
-    # eero), so proxying to the public name hangs and every protected request
-    # times out at the auth check. Connecting to 127.0.0.1 while presenting
-    # \$DOMAIN for TLS SNI and the Host header keeps the request on-box and still
-    # selects the Authelia vhost with a matching certificate and host — identical
-    # to what proxying to \$DOMAIN did back when it resolved to a local address.
-    proxy_pass ${URL_SCHEME}://127.0.0.1/api/authz/auth-request;
-    proxy_ssl_server_name on;
-    proxy_ssl_name $DOMAIN;
-    proxy_set_header Host $DOMAIN;
-    proxy_pass_request_body off;
-    proxy_ssl_verify off;
-    proxy_set_header Content-Length "";
-    proxy_set_header X-Original-Method \$request_method;
-    proxy_set_header X-Original-URL https://\$http_host\$request_uri;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_set_header X-Forwarded-Host \$http_host;
-    proxy_set_header X-Forwarded-Uri \$request_uri;
-}
+  # Hand the proxy-specific work to whichever proxy is in front of this app.
+  local DESCRIPTOR
+  DESCRIPTOR="$(mktemp)"
+  provider_forward_auth_descriptor "$SERVICE" > "$DESCRIPTOR"
 
-location @forward_auth_login {
-    auth_request off;
-    # Both URLs stay https. Authelia refuses an insecure rd target and falls
-    # back to its default_redirection_url instead, so an app protected this
-    # way has to be served over TLS -- there is no http variant that works.
-    return 302 ${URL_SCHEME}://$DOMAIN/?rd=https://\$http_host\$request_uri;
-}
-
-# Bypass auth for ACME challenges (letsencrypt)
-location /.well-known/acme-challenge/ {
-    allow all;
-    auth_request off;
-    auth_basic off;
-    root /var/lib/dokku/data/letsencrypt/${APP};
-}
-EOF
-
-  # Paths registered with `dokku sso:bypass` skip the auth subrequest. These are
-  # for machine callers that cannot complete an interactive Authelia flow —
-  # mobile apps, webhooks, OAuth callbacks — and that carry their own bearer
-  # tokens. Each bypass has to re-declare the proxy: nginx dispatches on the
-  # most specific prefix, so these locations replace `location /` for their
-  # paths and would otherwise match no handler and 404.
-  local BYPASS_FILE="$SERVICE_ROOT/bypass/$APP"
-  if [[ -s "$BYPASS_FILE" ]]; then
-    local UPSTREAM_PORT UPSTREAM
-    UPSTREAM_PORT=$("$DOKKU_BIN" ports:report "$APP" --ports-map < /dev/null 2>/dev/null | tr ' ' '\n' | head -1 | cut -d: -f3)
-    if [[ -z "$UPSTREAM_PORT" ]]; then
-      echo "!     Could not determine upstream port for $APP; skipping bypass paths" >&2
-    else
-      UPSTREAM="${APP}-${UPSTREAM_PORT}"
-      while IFS= read -r BYPASS_PATH; do
-        [[ -n "$BYPASS_PATH" ]] || continue
-        cat >> "$NGINX_CONF_DIR/forward-auth.conf" <<EOF
-
-# Bypass auth for $BYPASS_PATH (dokku sso:bypass)
-location $BYPASS_PATH {
-    auth_request off;
-    proxy_pass http://${UPSTREAM};
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection \$http_connection;
-    proxy_set_header Host \$http_host;
-    proxy_set_header X-Forwarded-For \$remote_addr;
-    proxy_set_header X-Forwarded-Port \$server_port;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    # Long-lived websockets (e.g. a mobile app's push connection) must outlive
-    # the 60s read timeout Dokku applies to ordinary requests.
-    proxy_read_timeout 3600s;
-}
-EOF
-      done < "$BYPASS_FILE"
-    fi
+  if ! load_proxy_adapter "$APP"; then
+    rm -f "$DESCRIPTOR"
+    return 1
   fi
-
-  # Directives injected into location / by the nginx-pre-reload trigger.
-  # Stored in a .directives file so nginx doesn't include them at server level.
-  cat > "$NGINX_CONF_DIR/forward-auth.directives" <<EOF
-auth_request /authelia-auth;
-auth_request_set \$authelia_user \$upstream_http_remote_user;
-auth_request_set \$authelia_groups \$upstream_http_remote_groups;
-auth_request_set \$authelia_name \$upstream_http_remote_name;
-auth_request_set \$authelia_email \$upstream_http_remote_email;
-proxy_set_header Remote-User \$authelia_user;
-proxy_set_header Remote-Groups \$authelia_groups;
-proxy_set_header Remote-Name \$authelia_name;
-proxy_set_header Remote-Email \$authelia_email;
-error_page 401 = @forward_auth_login;
-EOF
-
-  # Rebuild nginx config (triggers nginx-pre-reload hook)
-  "$DOKKU_BIN" proxy:build-config "$APP" < /dev/null 2>/dev/null || true
+  proxy_protect_app "$APP" "$DESCRIPTOR" "$SERVICE_ROOT/bypass/$APP"
+  rm -f "$DESCRIPTOR"
 }
 
 # Remove protection from an app
@@ -687,13 +618,10 @@ provider_unprotect_app() {
     mv "$SERVICE_ROOT/PROTECTED.tmp" "$SERVICE_ROOT/PROTECTED"
   fi
 
-  # Remove nginx forward auth include
-  local DOKKU_ROOT="${DOKKU_ROOT:-/home/dokku}"
-  rm -f "$DOKKU_ROOT/$APP/nginx.conf.d/forward-auth.conf"
-  rm -f "$DOKKU_ROOT/$APP/nginx.conf.d/forward-auth.directives"
-
-  # Rebuild nginx config
-  "$DOKKU_BIN" proxy:build-config "$APP" < /dev/null 2>/dev/null || true
+  # Tear down whatever the proxy in front of this app was told to do.
+  if load_proxy_adapter "$APP"; then
+    proxy_unprotect_app "$APP"
+  fi
 }
 
 # Enable OIDC

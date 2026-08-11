@@ -1,0 +1,139 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`nginx protection output > generates bypass locations for exempted paths 1`] = `
+"# Authelia forward auth - managed by dokku-sso plugin
+location /authelia-auth {
+    internal;
+    # Reach Authelia over the local nginx loopback rather than the public
+    # $DOMAIN. This subrequest is issued by nginx on the Dokku host itself; when
+    # $DOMAIN resolves to a public IP the host frequently cannot route back to
+    # itself (no NAT hairpin/loopback behind CGNAT or consumer routers such as
+    # eero), so proxying to the public name hangs and every protected request
+    # times out at the auth check. Connecting to 127.0.0.1 while presenting
+    # $DOMAIN for TLS SNI and the Host header keeps the request on-box and still
+    # selects the Authelia vhost with a matching certificate and host — identical
+    # to what proxying to $DOMAIN did back when it resolved to a local address.
+    proxy_pass https://127.0.0.1/api/authz/auth-request;
+    proxy_ssl_server_name on;
+    proxy_ssl_name auth.example.com;
+    proxy_set_header Host auth.example.com;
+    proxy_pass_request_body off;
+    proxy_ssl_verify off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Original-Method $request_method;
+    proxy_set_header X-Original-URL https://$http_host$request_uri;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $http_host;
+    proxy_set_header X-Forwarded-Uri $request_uri;
+}
+
+location @forward_auth_login {
+    auth_request off;
+    # Both URLs stay https. Authelia refuses an insecure rd target and falls
+    # back to its default_redirection_url instead, so an app protected this
+    # way has to be served over TLS -- there is no http variant that works.
+    return 302 https://auth.example.com/?rd=https://$http_host$request_uri;
+}
+
+# Bypass auth for ACME challenges (letsencrypt)
+location /.well-known/acme-challenge/ {
+    allow all;
+    auth_request off;
+    auth_basic off;
+    root /var/lib/dokku/data/letsencrypt/myapp;
+}
+
+# Bypass auth for /api/ (dokku sso:bypass)
+location /api/ {
+    auth_request off;
+    proxy_pass http://myapp-8123;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $http_connection;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # Long-lived websockets (e.g. a mobile app's push connection) must outlive
+    # the 60s read timeout Dokku applies to ordinary requests.
+    proxy_read_timeout 3600s;
+}
+
+# Bypass auth for /feed/ (dokku sso:bypass)
+location /feed/ {
+    auth_request off;
+    proxy_pass http://myapp-8123;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $http_connection;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # Long-lived websockets (e.g. a mobile app's push connection) must outlive
+    # the 60s read timeout Dokku applies to ordinary requests.
+    proxy_read_timeout 3600s;
+}
+"
+`;
+
+exports[`nginx protection output > generates the directives injected into location / 1`] = `
+"auth_request /authelia-auth;
+auth_request_set $authelia_user $upstream_http_remote_user;
+auth_request_set $authelia_groups $upstream_http_remote_groups;
+auth_request_set $authelia_name $upstream_http_remote_name;
+auth_request_set $authelia_email $upstream_http_remote_email;
+proxy_set_header Remote-User $authelia_user;
+proxy_set_header Remote-Groups $authelia_groups;
+proxy_set_header Remote-Name $authelia_name;
+proxy_set_header Remote-Email $authelia_email;
+error_page 401 = @forward_auth_login;
+"
+`;
+
+exports[`nginx protection output > generates the server-level config for a protected app 1`] = `
+"# Authelia forward auth - managed by dokku-sso plugin
+location /authelia-auth {
+    internal;
+    # Reach Authelia over the local nginx loopback rather than the public
+    # $DOMAIN. This subrequest is issued by nginx on the Dokku host itself; when
+    # $DOMAIN resolves to a public IP the host frequently cannot route back to
+    # itself (no NAT hairpin/loopback behind CGNAT or consumer routers such as
+    # eero), so proxying to the public name hangs and every protected request
+    # times out at the auth check. Connecting to 127.0.0.1 while presenting
+    # $DOMAIN for TLS SNI and the Host header keeps the request on-box and still
+    # selects the Authelia vhost with a matching certificate and host — identical
+    # to what proxying to $DOMAIN did back when it resolved to a local address.
+    proxy_pass https://127.0.0.1/api/authz/auth-request;
+    proxy_ssl_server_name on;
+    proxy_ssl_name auth.example.com;
+    proxy_set_header Host auth.example.com;
+    proxy_pass_request_body off;
+    proxy_ssl_verify off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Original-Method $request_method;
+    proxy_set_header X-Original-URL https://$http_host$request_uri;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $http_host;
+    proxy_set_header X-Forwarded-Uri $request_uri;
+}
+
+location @forward_auth_login {
+    auth_request off;
+    # Both URLs stay https. Authelia refuses an insecure rd target and falls
+    # back to its default_redirection_url instead, so an app protected this
+    # way has to be served over TLS -- there is no http variant that works.
+    return 302 https://auth.example.com/?rd=https://$http_host$request_uri;
+}
+
+# Bypass auth for ACME challenges (letsencrypt)
+location /.well-known/acme-challenge/ {
+    allow all;
+    auth_request off;
+    auth_basic off;
+    root /var/lib/dokku/data/letsencrypt/myapp;
+}
+"
+`;

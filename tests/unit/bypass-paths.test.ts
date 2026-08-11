@@ -35,7 +35,7 @@ esac
 
   const cmd =
     `PLUGIN_DATA_ROOT="${root}" DOKKU_ROOT="${root}/dokku" DOKKU_BIN="${dokkuStub}" ` +
-    `bash -c 'source "${PROVIDER_PATH}" && provider_protect_app "${service}" "${app}"'`;
+    `bash -c 'source "${PLUGIN_DIR}/providers/loader.sh"; source "${PROVIDER_PATH}" && provider_protect_app "${service}" "${app}"'`;
   execSync(cmd, { encoding: 'utf-8', timeout: 20000, stdio: 'pipe' });
 
   return readFileSync(join(root, 'dokku', app, 'nginx.conf.d', 'forward-auth.conf'), 'utf-8');
