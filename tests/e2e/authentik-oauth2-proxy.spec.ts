@@ -820,7 +820,7 @@ http {
     // Step 2: Should be redirected to Authentik login page
     console.log('Step 3.2: Waiting for redirect to Authentik...');
     await page.waitForURL(
-      (url) => url.hostname.includes('authentik') || url.hostname === AUTH_DOMAIN,
+      (url) => url.hostname === AUTH_DOMAIN,
       { timeout: 30000 }
     );
 

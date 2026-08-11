@@ -1,4 +1,4 @@
-import { dokku, waitForHealthy, libraryInstalled } from './helpers';
+import { dokku, waitForHealthy, libraryInstalled, pluginListHas } from './helpers';
 
 /**
  * Global setup for E2E tests
@@ -26,7 +26,7 @@ async function globalSetup() {
   try {
     dokku('plugin:list', { quiet: true, prefix: '[setup] ', logOutput: false });
     const plugins = dokku('plugin:list', { quiet: true, prefix: '[setup] ', logOutput: false });
-    if (!plugins.includes('sso')) {
+    if (!pluginListHas(plugins, 'sso')) {
       console.log('Installing sso plugin...');
       dokku('plugin:install file:///plugin-src --name sso', { quiet: true, prefix: '[setup] ', logOutput: false });
     }

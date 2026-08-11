@@ -561,6 +561,22 @@ export async function loginViaAuthelia(
 }
 
 /** Verify that accessing a URL redirects to Authelia login. */
+/**
+ * True if `dokku plugin:list` output contains this plugin, by name.
+ *
+ * The name is the first column; the rest of the line is a version, a state and
+ * a description. Searching the whole output for the name reports a plugin as
+ * installed when something else merely mentions it -- including the same
+ * plugin installed under a different directory name, which is the mixup that
+ * left apps unprotected in CI.
+ */
+export function pluginListHas(pluginListOutput: string, name: string): boolean {
+  return pluginListOutput
+    .split('\n')
+    .map((line) => line.trim().split(/\s+/)[0])
+    .some((first) => first === name);
+}
+
 /** The Authelia service domain used across the E2E suite. */
 export const AUTH_DOMAIN = 'auth.test.local';
 

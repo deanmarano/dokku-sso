@@ -747,7 +747,9 @@ http {
 
     // Step 2: Should be redirected to Authentik login page
     console.log('Step 4.3: Waiting for redirect to Authentik...');
-    await page.waitForURL((url) => url.hostname.includes('authentik') || url.hostname === AUTH_DOMAIN, {
+    // Exact hostname: both domains contain both words, so a substring test
+    // here is true before any redirect happens and asserts nothing.
+    await page.waitForURL((url) => url.hostname === AUTH_DOMAIN, {
       timeout: 30000,
     });
 
@@ -909,7 +911,7 @@ http {
 
     // Step 6: Wait for redirect back to Grafana
     console.log('Step 4.8: Waiting for redirect back to Grafana...');
-    await page.waitForURL((url) => url.hostname === APP_DOMAIN || url.hostname.includes('grafana'), {
+    await page.waitForURL((url) => url.hostname === APP_DOMAIN, {
       timeout: 30000,
     });
 
