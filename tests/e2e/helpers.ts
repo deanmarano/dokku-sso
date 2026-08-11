@@ -467,6 +467,35 @@ export function hostsFileHasEntry(hostsContents: string, domain: string): boolea
     .some((line) => line.split(/\s+/).slice(1).includes(domain));
 }
 
+/**
+ * Give an app a self-signed certificate, so it is reachable over https.
+ *
+ * Authelia refuses an insecure `rd` target and silently falls back to its
+ * default_redirection_url, so a forward-auth protected app has to be served
+ * over TLS for the post-login return trip to reach it. The Authelia app
+ * generates itself a certificate for the same reason; apps protected by it
+ * need one too. Playwright is configured with ignoreHTTPSErrors.
+ */
+export function addSelfSignedCert(app: string, domain: string): void {
+  try {
+    const certDir = execSync('mktemp -d', { encoding: 'utf-8' }).trim();
+    execSync(
+      `openssl req -x509 -nodes -days 3650 -newkey rsa:2048 ` +
+        `-keyout ${certDir}/server.key -out ${certDir}/server.crt ` +
+        `-subj "/CN=${domain}" -addext "subjectAltName=DNS:${domain}" 2>/dev/null`,
+      { encoding: 'utf-8' },
+    );
+    // dokku certs:add reads a tar stream of server.crt + server.key on stdin.
+    execSync(`tar cf - -C ${certDir} server.crt server.key | dokku certs:add ${app}`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    execSync(`rm -rf ${certDir}`);
+  } catch (e: any) {
+    console.log(`addSelfSignedCert(${app}) failed: ${e.message}`);
+  }
+}
+
 /** Add a hostname to /etc/hosts pointing to 127.0.0.1. */
 export function addHostsEntry(domain: string): void {
   try {

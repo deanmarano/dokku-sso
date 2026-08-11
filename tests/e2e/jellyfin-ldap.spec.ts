@@ -11,7 +11,8 @@ import {
   loginViaAuthelia,
   verifyAutheliaRedirect,
   waitForAuthHealthy,
-  type TestUser,
+  type TestUser,,
+  addSelfSignedCert,
 } from './helpers';
 
 /**
@@ -52,6 +53,10 @@ test.describe('Jellyfin LDAP Integration', () => {
       `library:checkout jellyfin --name=${APP} --domain=${DOMAIN} --no-ssl --non-interactive --auth-service=${AUTH_SERVICE}`,
       { timeout: 300000 },
     );
+
+    // Authelia will not redirect back to an insecure target, so the app has
+    // to answer on https for the post-login return trip to land on it.
+    addSelfSignedCert(APP, DOMAIN);
 
     console.log('=== Setup complete ===');
   }, 600000);
