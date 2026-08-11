@@ -163,6 +163,22 @@ jobs:
           # Check provider scripts
           find providers -name "*.sh" -type f -exec shellcheck -x {} +
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # tsconfig excludes tests/e2e, so nothing typechecks the specs. Without
+      # this, a syntax error in one of them is only discovered by the E2E job
+      # ten minutes later, reported as "No tests found". Listing loads and
+      # parses every spec through Playwright's own loader, needing no browser,
+      # no Dokku and about a second.
+      - name: Check E2E specs parse
+        run: npx playwright test --list > /dev/null
+
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest

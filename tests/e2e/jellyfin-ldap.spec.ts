@@ -11,7 +11,7 @@ import {
   loginViaAuthelia,
   verifyAutheliaRedirect,
   waitForAuthHealthy,
-  type TestUser,,
+  type TestUser,
   addSelfSignedCert,
 } from './helpers';
 
