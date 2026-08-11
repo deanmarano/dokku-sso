@@ -600,7 +600,12 @@ location /authelia-auth {
 
 location @forward_auth_login {
     auth_request off;
-    return 302 ${URL_SCHEME}://$DOMAIN/?rd=https://\$http_host\$request_uri;
+    # rd is where the browser goes after login, so it has to name the app's
+    # real scheme. X-Original-URL above stays https on purpose -- Authelia
+    # requires a secure scheme for the resource it authorises -- but sending
+    # the browser to https for an app deployed without TLS lands it on
+    # whichever vhost does hold a certificate, not on the app.
+    return 302 ${URL_SCHEME}://$DOMAIN/?rd=\$scheme://\$http_host\$request_uri;
 }
 
 # Bypass auth for ACME challenges (letsencrypt)

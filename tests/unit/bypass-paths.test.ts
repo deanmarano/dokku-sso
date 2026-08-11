@@ -91,6 +91,18 @@ describe('sso:bypass path generation', () => {
     expect(conf).toContain('proxy_set_header Upgrade $http_upgrade;');
   });
 
+  it('should send the browser back over the app\'s own scheme after login', () => {
+    // These two differ on purpose. Authelia requires a secure scheme for the
+    // resource it authorises, so X-Original-URL is https; rd is where the
+    // browser is sent afterwards, and https for an app without TLS lands it
+    // on whichever vhost does hold a certificate.
+    writeBypass(root, 'production', 'homeassistant', ['/api/']);
+    const conf = protectApp(root, 'production', 'homeassistant');
+
+    expect(conf).toContain('rd=$scheme://$http_host$request_uri');
+    expect(conf).toContain('X-Original-URL https://$http_host$request_uri');
+  });
+
   it('should still protect the ACME challenge path and login redirect', () => {
     writeBypass(root, 'production', 'homeassistant', ['/api/']);
     const conf = protectApp(root, 'production', 'homeassistant');

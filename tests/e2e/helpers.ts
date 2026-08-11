@@ -528,21 +528,43 @@ export async function loginViaAuthelia(
 
   await page.locator('button[type="submit"], #sign-in-button').click();
 
-  await page.waitForURL(
-    (url) => !url.href.includes('authelia') && !url.href.includes('auth.test.local'),
-    { timeout: 15000 },
-  );
+  await page.waitForURL((url) => !isAutheliaUrl(url.href), { timeout: 15000 });
 }
 
 /** Verify that accessing a URL redirects to Authelia login. */
+/** The Authelia service domain used across the E2E suite. */
+export const AUTH_DOMAIN = 'auth.test.local';
+
+/**
+ * True if this URL is Authelia's own portal.
+ *
+ * Compares the hostname; a substring test on the whole URL would call
+ * `test-radarr-auth.test.local` an Authelia URL, because it ends with the auth
+ * domain. Any app whose name ends that way would look like it never left the
+ * login page.
+ */
+export function isAutheliaUrl(href: string, authDomain: string = AUTH_DOMAIN): boolean {
+  try {
+    const { hostname } = new URL(href);
+    return hostname === authDomain || hostname.startsWith('authelia.');
+  } catch {
+    return false;
+  }
+}
+
 export async function verifyAutheliaRedirect(
   page: Page,
   appUrl: string,
 ): Promise<boolean> {
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
-  const url = page.url();
-  // Check if redirected to Authelia: URL contains 'authelia', the auth domain, or the rd= query param
-  return url.includes('authelia') || url.includes('auth.test.local') || url.includes('/api/verify') || url.includes('rd=');
+  const href = page.url();
+  if (isAutheliaUrl(href)) return true;
+  try {
+    const url = new URL(href);
+    return url.searchParams.has('rd') || url.pathname.includes('/api/verify');
+  } catch {
+    return false;
+  }
 }
 
 // ─── Preset helpers (used by gitlab-ldap and other non-library tests) ────────
