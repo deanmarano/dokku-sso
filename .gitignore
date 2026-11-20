@@ -8,3 +8,4 @@ coverage/
 .vagrant/
 *.box
 vagrant/*.log
+.claude/settings.local.json
